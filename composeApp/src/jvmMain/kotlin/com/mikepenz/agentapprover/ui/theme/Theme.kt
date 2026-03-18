@@ -1,7 +1,9 @@
 package com.mikepenz.agentapprover.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import co.touchlab.kermit.Logger
@@ -50,20 +52,60 @@ fun toolColor(toolType: ToolType): Color = when (toolType) {
 }
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF7C4DFF),
-    secondary = Color(0xFFB388FF),
-    background = Color(0xFF121212),
-    surface = Color(0xFF1A1A2E),
+    primary = Color(0xFF8B5CF6),
     onPrimary = Color.White,
+    primaryContainer = Color(0xFF3B2667),
+    onPrimaryContainer = Color(0xFFE0D0FF),
+    secondary = Color(0xFFA78BFA),
     onSecondary = Color.White,
-    onBackground = Color.White,
-    onSurface = Color.White,
+    secondaryContainer = Color(0xFF2D2150),
+    onSecondaryContainer = Color(0xFFE8DEFF),
+    tertiary = Color(0xFF7DD3FC),
+    onTertiary = Color(0xFF003548),
+    background = Color(0xFF0F1419),
+    onBackground = Color(0xFFE2E8F0),
+    surface = Color(0xFF1A2332),
+    onSurface = Color(0xFFE2E8F0),
+    surfaceVariant = Color(0xFF243044),
+    onSurfaceVariant = Color(0xFFB0BEC5),
+    outline = Color(0xFF475569),
+    outlineVariant = Color(0xFF334155),
+    inverseSurface = Color(0xFFE2E8F0),
+    inverseOnSurface = Color(0xFF1A2332),
+    error = Color(0xFFFF6B6B),
+    onError = Color.White,
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = Color(0xFF7C3AED),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFEDE5FF),
+    onPrimaryContainer = Color(0xFF22005D),
+    secondary = Color(0xFF8B5CF6),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFF3EDFF),
+    onSecondaryContainer = Color(0xFF1D0A42),
+    tertiary = Color(0xFF0284C7),
+    onTertiary = Color.White,
+    background = Color(0xFFFAFAFA),
+    onBackground = Color(0xFF1A1A2E),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF1A1A2E),
+    surfaceVariant = Color(0xFFF1F5F9),
+    onSurfaceVariant = Color(0xFF475569),
+    outline = Color(0xFFCBD5E1),
+    outlineVariant = Color(0xFFE2E8F0),
+    inverseSurface = Color(0xFF1A2332),
+    inverseOnSurface = Color(0xFFE2E8F0),
+    error = Color(0xFFDC2626),
+    onError = Color.White,
 )
 
 @Composable
 fun AgentApproverTheme(content: @Composable () -> Unit) {
+    val colorScheme = if (isSystemInDarkTheme()) DarkColorScheme else LightColorScheme
     MaterialTheme(
-        colorScheme = DarkColorScheme,
+        colorScheme = colorScheme,
         content = content,
     )
 }

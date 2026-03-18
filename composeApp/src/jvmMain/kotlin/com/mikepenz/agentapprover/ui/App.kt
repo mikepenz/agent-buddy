@@ -13,6 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -176,15 +177,30 @@ fun App(
 
             1 -> HistoryTab(history = state.history)
 
-            2 -> SettingsTab(
-                settings = state.settings,
-                isHookRegistered = hookRegistrar.isRegistered(state.settings.serverPort),
-                historyCount = state.history.size,
-                onSettingsChange = { stateManager.updateSettings(it) },
-                onRegisterHook = { hookRegistrar.register(state.settings.serverPort) },
-                onUnregisterHook = { hookRegistrar.unregister(state.settings.serverPort) },
-                onClearHistory = { stateManager.clearHistory() },
-            )
+            2 -> {
+                var isHookRegistered by remember { mutableStateOf(hookRegistrar.isRegistered(state.settings.serverPort)) }
+
+                // Re-check when port changes
+                LaunchedEffect(state.settings.serverPort) {
+                    isHookRegistered = hookRegistrar.isRegistered(state.settings.serverPort)
+                }
+
+                SettingsTab(
+                    settings = state.settings,
+                    isHookRegistered = isHookRegistered,
+                    historyCount = state.history.size,
+                    onSettingsChange = { stateManager.updateSettings(it) },
+                    onRegisterHook = {
+                        hookRegistrar.register(state.settings.serverPort)
+                        isHookRegistered = hookRegistrar.isRegistered(state.settings.serverPort)
+                    },
+                    onUnregisterHook = {
+                        hookRegistrar.unregister(state.settings.serverPort)
+                        isHookRegistered = hookRegistrar.isRegistered(state.settings.serverPort)
+                    },
+                    onClearHistory = { stateManager.clearHistory() },
+                )
+            }
         }
     }
 }

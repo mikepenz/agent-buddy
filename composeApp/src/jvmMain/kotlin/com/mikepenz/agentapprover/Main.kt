@@ -131,6 +131,10 @@ fun main() {
 
         val settings = stateManager.state.value.settings
 
+        // TODO: Replace Window with Nucleus MaterialDecoratedWindow for native-looking window decoration.
+        //  Nucleus library (io.github.kdroidfilter:nucleus-desktop) is not yet added as a dependency.
+        //  Once added, use MaterialDecoratedWindow { ... } instead of Window { ... } and apply
+        //  the Nucleus Gradle plugin (io.github.kdroidfilter.nucleus) in build.gradle.kts.
         Window(
             onCloseRequest = { isVisible = false },
             visible = isVisible,
