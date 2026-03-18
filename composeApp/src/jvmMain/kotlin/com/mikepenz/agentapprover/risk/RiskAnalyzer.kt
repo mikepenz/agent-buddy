@@ -50,9 +50,31 @@ class RiskAnalyzer(
         synchronized(activeJobs) { activeJobs.remove(requestId) }?.cancel()
     }
 
+    private fun findClaudeCli(): String {
+        // Try common locations since spawned JVM processes may not have user's PATH
+        val candidates = listOf(
+            "claude",
+            "${System.getProperty("user.home")}/.local/bin/claude",
+            "/usr/local/bin/claude",
+            "/opt/homebrew/bin/claude",
+        )
+        for (candidate in candidates) {
+            try {
+                val test = ProcessBuilder(candidate, "--version")
+                    .redirectErrorStream(true)
+                    .start()
+                if (test.waitFor() == 0) return candidate
+            } catch (_: Exception) {
+                continue
+            }
+        }
+        throw IllegalStateException("CLI not found")
+    }
+
     private suspend fun runCli(prompt: String): String = withTimeout(30_000) {
+        val claudePath = findClaudeCli()
         val process = try {
-            ProcessBuilder("claude", "-m", "haiku", "-p", prompt, "--output-format", "json")
+            ProcessBuilder(claudePath, "--model", "haiku", "-p", prompt, "--output-format", "json")
                 .redirectErrorStream(false)
                 .start()
         } catch (e: Exception) {
@@ -62,11 +84,13 @@ class RiskAnalyzer(
 
         try {
             val outputDeferred = async { process.inputStream.bufferedReader().readText() }
+            val stderrDeferred = async { process.errorStream.bufferedReader().readText() }
             val exitCode = process.waitFor()
             val output = outputDeferred.await()
+            val stderr = stderrDeferred.await()
 
             if (exitCode != 0) {
-                Logger.e("RiskAnalyzer") { "CLI exited with code $exitCode" }
+                Logger.e("RiskAnalyzer") { "CLI exited with code $exitCode, stderr: $stderr" }
                 throw IllegalStateException("Error")
             }
             output
@@ -77,8 +101,24 @@ class RiskAnalyzer(
     }
 
     private fun parseResult(output: String): RiskAnalysis {
-        val jsonStr = extractJson(output) ?: run {
-            Logger.e("RiskAnalyzer") { "Non-JSON output: $output" }
+        // The claude CLI with --output-format json wraps the result in an envelope:
+        // {"type":"result","result":"```json\n{\"risk\":1,\"message\":\"...\"}\n```",...}
+        // We need to extract the inner JSON from the "result" field.
+        val innerJson = try {
+            val envelope = json.parseToJsonElement(output).jsonObject
+            val resultStr = envelope["result"]?.jsonPrimitive?.content ?: output
+            // Strip markdown code fences if present
+            resultStr
+                .replace(Regex("```json\\s*"), "")
+                .replace(Regex("```\\s*"), "")
+                .trim()
+        } catch (_: Exception) {
+            // Not an envelope, try raw output
+            output
+        }
+
+        val jsonStr = extractJson(innerJson) ?: run {
+            Logger.e("RiskAnalyzer") { "Could not extract JSON from: $innerJson" }
             throw IllegalStateException("Error")
         }
         return try {
@@ -89,7 +129,7 @@ class RiskAnalyzer(
                 ?: throw IllegalStateException("Missing message field")
             RiskAnalysis(risk = risk.coerceIn(1, 5), message = message)
         } catch (e: Exception) {
-            Logger.e("RiskAnalyzer") { "Failed to parse JSON: ${e.message}" }
+            Logger.e("RiskAnalyzer") { "Failed to parse JSON: ${e.message}, input: $jsonStr" }
             throw IllegalStateException("Error")
         }
     }

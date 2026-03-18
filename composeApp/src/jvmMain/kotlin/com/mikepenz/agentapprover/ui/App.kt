@@ -1,9 +1,10 @@
 package com.mikepenz.agentapprover.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -17,7 +18,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import com.mikepenz.agentapprover.hook.HookRegistrar
 import com.mikepenz.agentapprover.model.Decision
 import com.mikepenz.agentapprover.risk.RiskAnalyzer
@@ -108,8 +111,9 @@ fun App(
                 onClick = { selectedTab = 0 },
                 text = {
                     if (state.pendingApprovals.isNotEmpty()) {
-                        BadgedBox(badge = { Badge { Text("${state.pendingApprovals.size}") } }) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Approvals")
+                            Badge { Text("${state.pendingApprovals.size}") }
                         }
                     } else {
                         Text("Approvals")
