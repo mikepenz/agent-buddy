@@ -1,0 +1,274 @@
+package com.mikepenz.agentapprover.ui.settings
+
+import androidx.compose.desktop.ui.tooling.preview.Preview
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.mikepenz.agentapprover.model.AppSettings
+import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
+
+@Composable
+fun SettingsTab(
+    settings: AppSettings,
+    isHookRegistered: Boolean,
+    historyCount: Int,
+    onSettingsChange: (AppSettings) -> Unit,
+    onRegisterHook: () -> Unit,
+    onUnregisterHook: () -> Unit,
+    onClearHistory: () -> Unit,
+) {
+    var showClearDialog by remember { mutableStateOf(false) }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            title = { Text("Clear all history?") },
+            text = { Text("This will permanently remove all history entries.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onClearHistory()
+                    showClearDialog = false
+                }) {
+                    Text("Clear", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        // -- Integration Section --
+        SectionHeader("Integration")
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Claude Code", style = MaterialTheme.typography.titleSmall)
+                    StatusBadge(
+                        text = if (isHookRegistered) "Registered" else "Not registered",
+                        color = if (isHookRegistered) Color(0xFF4CAF50) else Color(0xFF9E9E9E),
+                    )
+                }
+                Text(
+                    "Hook in ~/.claude/settings.json",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = if (isHookRegistered) onUnregisterHook else onRegisterHook,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isHookRegistered) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
+                    Text(if (isHookRegistered) "Unregister" else "Register")
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+        ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("GitHub Copilot", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                    StatusBadge(text = "Coming Soon", color = Color(0xFF9E9E9E))
+                }
+            }
+        }
+
+        // -- General Section --
+        SectionHeader("General")
+
+        SettingsTextField(
+            label = "Server port",
+            value = settings.serverPort.toString(),
+            onValueChange = { it.toIntOrNull()?.let { port -> onSettingsChange(settings.copy(serverPort = port)) } },
+        )
+
+        SettingsSwitch(
+            label = "Always on top",
+            checked = settings.alwaysOnTop,
+            onCheckedChange = { onSettingsChange(settings.copy(alwaysOnTop = it)) },
+        )
+
+        SettingsTextField(
+            label = "Default timeout (seconds)",
+            value = settings.defaultTimeoutSeconds.toString(),
+            onValueChange = { it.toIntOrNull()?.let { timeout -> onSettingsChange(settings.copy(defaultTimeoutSeconds = timeout)) } },
+        )
+
+        SettingsSwitch(
+            label = "Start on boot",
+            checked = settings.startOnBoot,
+            onCheckedChange = { onSettingsChange(settings.copy(startOnBoot = it)) },
+        )
+
+        // -- Risk Analysis Section --
+        SectionHeader("Risk Analysis")
+
+        SettingsSwitch(
+            label = "Enable risk analysis",
+            checked = settings.riskAnalysisEnabled,
+            onCheckedChange = { onSettingsChange(settings.copy(riskAnalysisEnabled = it)) },
+        )
+
+        SettingsSwitch(
+            label = "Auto-approve risk 1",
+            checked = settings.autoApproveRisk1,
+            onCheckedChange = { onSettingsChange(settings.copy(autoApproveRisk1 = it)) },
+            enabled = settings.riskAnalysisEnabled,
+        )
+
+        SettingsSwitch(
+            label = "Auto-deny risk 5",
+            checked = settings.autoDenyRisk5,
+            onCheckedChange = { onSettingsChange(settings.copy(autoDenyRisk5 = it)) },
+            enabled = settings.riskAnalysisEnabled,
+        )
+
+        // -- Data Section --
+        SectionHeader("Data")
+
+        Text(
+            "History entries: $historyCount / 250",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        Button(
+            onClick = { showClearDialog = true },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+        ) {
+            Text("Clear History")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+}
+
+@Composable
+private fun StatusBadge(text: String, color: Color) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = color.copy(alpha = 0.15f),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+        )
+    }
+}
+
+@Composable
+private fun SettingsTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = MaterialTheme.typography.bodyMedium)
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
+    }
+}
+
+@Composable
+private fun SettingsSwitch(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+        )
+    }
+}
+
+// -- Previews --
+
+@Preview
+@Composable
+private fun PreviewRegistered() {
+    AgentApproverTheme {
+        SettingsTab(
+            settings = AppSettings(),
+            isHookRegistered = true,
+            historyCount = 42,
+            onSettingsChange = {},
+            onRegisterHook = {},
+            onUnregisterHook = {},
+            onClearHistory = {},
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewUnregistered() {
+    AgentApproverTheme {
+        SettingsTab(
+            settings = AppSettings(),
+            isHookRegistered = false,
+            historyCount = 0,
+            onSettingsChange = {},
+            onRegisterHook = {},
+            onUnregisterHook = {},
+            onClearHistory = {},
+        )
+    }
+}
