@@ -94,7 +94,8 @@ fun HistoryRow(
     onToggleExpand: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onToggleExpand),
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onToggleExpand,
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = if (isExpanded) 2.dp else 0.dp,

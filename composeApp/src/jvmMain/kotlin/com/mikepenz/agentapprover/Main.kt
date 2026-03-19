@@ -1,10 +1,12 @@
 package com.mikepenz.agentapprover
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -18,10 +20,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.window.Tray
+import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -124,16 +127,28 @@ fun main() {
         }
 
         if (showPortError) {
-            AlertDialog(
-                onDismissRequest = { exitApplication() },
-                title = { Text("Port In Use") },
-                text = { Text("The server port is already in use. Another instance may be running.") },
-                confirmButton = {
-                    TextButton(onClick = { exitApplication() }) {
-                        Text("Exit")
+            Window(
+                onCloseRequest = { exitApplication() },
+                title = "Port In Use",
+                state = rememberWindowState(
+                    size = DpSize(400.dp, 200.dp),
+                    position = WindowPosition(Alignment.Center),
+                ),
+            ) {
+                AgentApproverTheme(themeMode = stateManager.state.value.settings.themeMode) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text("The server port is already in use. Another instance may be running.",
+                                style = MaterialTheme.typography.bodyMedium)
+                            Button(onClick = { exitApplication() }) { Text("Exit") }
+                        }
                     }
-                },
-            )
+                }
+            }
         }
 
         val state by stateManager.state.collectAsState()
