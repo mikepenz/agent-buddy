@@ -5,15 +5,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikepenz.agentapprover.model.*
+import com.mikepenz.agentapprover.ui.icons.FontAwesomeCaretDown
 import com.mikepenz.agentapprover.model.PermissionSuggestion
 import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
 import com.mikepenz.markdown.m3.Markdown
@@ -74,7 +77,12 @@ fun DefaultCard(
         OutlinedTextField(
             value = denyFeedback,
             onValueChange = { denyFeedback = it },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
+                if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                    onDeny(denyFeedback)
+                    true
+                } else false
+            },
             placeholder = { Text("Denial reason (optional)", fontSize = 12.sp) },
             singleLine = true,
             textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
@@ -110,7 +118,6 @@ fun DefaultCard(
                 // Split button: Approve + dropdown arrow for "Always allow"
                 var showMenu by remember { mutableStateOf(false) }
                 val tooltipText = remember(request) { formatPermissionTooltip(request.hookInput.permissionSuggestions) }
-
                 Row(modifier = Modifier.weight(1f)) {
                     Button(
                         onClick = { onApprove(null) },
@@ -120,14 +127,19 @@ fun DefaultCard(
                     ) {
                         Text("Approve")
                     }
+                    Spacer(Modifier.width(1.dp))
                     Box {
                         Button(
                             onClick = { showMenu = true },
-                            modifier = Modifier.width(32.dp),
+                            modifier = Modifier.width(40.dp),
                             shape = RoundedCornerShape(topStartPercent = 0, bottomStartPercent = 0, topEndPercent = 50, bottomEndPercent = 50),
                             contentPadding = PaddingValues(0.dp),
                         ) {
-                            Text("▾")
+                            Icon(
+                                imageVector = FontAwesomeCaretDown,
+                                contentDescription = "More options",
+                                modifier = Modifier.size(12.dp),
+                            )
                         }
                         DropdownMenu(
                             expanded = showMenu,
@@ -140,7 +152,7 @@ fun DefaultCard(
                                         Text(tooltipText)
                                     }
                                 },
-                                state = rememberTooltipState(),
+                                state = rememberTooltipState(isPersistent = true),
                             ) {
                                 DropdownMenuItem(
                                     text = { Text("Always allow") },

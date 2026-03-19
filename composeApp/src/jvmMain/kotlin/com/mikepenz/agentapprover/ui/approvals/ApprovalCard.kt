@@ -83,22 +83,45 @@ fun ApprovalCard(
         elevation = CardDefaults.cardElevation(defaultElevation = shadowElevation),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
+        // Track remaining seconds for both progress bar and text display
+        var remainingSeconds by remember { mutableIntStateOf(timeoutSeconds) }
+
         Box {
             Column {
-                // Timer progress bar (not for Plan/AskUserQuestion)
+                // Full-width progress bar at top of card (only for DEFAULT)
                 if (request.toolType == ToolType.DEFAULT) {
-                    TimerProgressBar(timeoutSeconds = timeoutSeconds)
+                    TimerProgressBar(
+                        timeoutSeconds = timeoutSeconds,
+                        remainingSeconds = remainingSeconds,
+                        onRemainingSecondsChanged = { remainingSeconds = it },
+                        onTimeout = { onDeny("Request timed out") },
+                    )
                 }
 
                 Column(modifier = Modifier.padding(12.dp)) {
-                    // Tool badge + Risk badge row
+                    // Tool badge + Risk badge + Timer row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ToolBadge(toolName = request.hookInput.toolName, toolType = request.toolType)
-                        RiskBadge(riskResult = riskResult, riskStatus = riskStatus, riskError = riskError)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            RiskBadge(riskResult = riskResult, riskStatus = riskStatus, riskError = riskError)
+                            if (request.toolType == ToolType.DEFAULT) {
+                                val fraction = remainingSeconds.toFloat() / timeoutSeconds
+                                val color = if (fraction < 0.2f) Color(0xFFF44336) else MaterialTheme.colorScheme.onSurfaceVariant
+                                Text(
+                                    text = "${remainingSeconds}s",
+                                    fontSize = 10.sp,
+                                    color = color,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                )
+                            }
+                        }
                     }
 
                     Spacer(Modifier.height(8.dp))
@@ -140,7 +163,12 @@ fun ApprovalCard(
 }
 
 @Composable
-fun TimerProgressBar(timeoutSeconds: Int) {
+fun TimerProgressBar(
+    timeoutSeconds: Int,
+    remainingSeconds: Int,
+    onRemainingSecondsChanged: (Int) -> Unit,
+    onTimeout: () -> Unit,
+) {
     var progress by remember { mutableStateOf(1f) }
     val animatedProgress by animateFloatAsState(
         targetValue = progress,
@@ -149,6 +177,13 @@ fun TimerProgressBar(timeoutSeconds: Int) {
 
     LaunchedEffect(timeoutSeconds) {
         progress = 0f
+        var remaining = remainingSeconds
+        while (remaining > 0) {
+            delay(1000)
+            remaining--
+            onRemainingSecondsChanged(remaining)
+        }
+        onTimeout()
     }
 
     val color = if (animatedProgress < 0.2f) Color(0xFFF44336) else MaterialTheme.colorScheme.primary
@@ -209,21 +244,26 @@ fun RiskBadge(riskResult: RiskAnalysis?, riskStatus: RiskStatus, riskError: Stri
         riskResult != null -> {
             val color = riskColor(riskResult.risk)
             val label = riskResult.label.ifBlank { riskLabel(riskResult.risk) }
+            val tooltipText = buildString {
+                append("$label")
+                if (riskResult.message.isNotBlank()) append(" — ${riskResult.message}")
+            }
+            val tooltipState = rememberTooltipState(isPersistent = true)
             TooltipBox(
                 positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
                 tooltip = {
                     PlainTooltip {
-                        Text(riskResult.message.ifBlank { label })
+                        Text(tooltipText)
                     }
                 },
-                state = rememberTooltipState(),
+                state = tooltipState,
             ) {
                 Surface(
                     shape = RoundedCornerShape(4.dp),
                     color = color.copy(alpha = 0.2f),
                 ) {
                     Text(
-                        text = "Risk ${riskResult.risk} - $label",
+                        text = "Risk ${riskResult.risk}",
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         color = color,
                         fontSize = 10.sp,
