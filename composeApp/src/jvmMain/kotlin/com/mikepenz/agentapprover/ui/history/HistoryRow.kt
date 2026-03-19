@@ -292,17 +292,16 @@ fun HistoryRow(
                     }
 
                     // Overlapping copy button top-right
-                    IconButton(
+                    Surface(
                         onClick = { clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(fullText)) },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(28.dp)
-                            .background(Color(0xFF0D0D0D).copy(alpha = 0.8f), RoundedCornerShape(4.dp)),
+                        modifier = Modifier.align(Alignment.TopEnd),
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFF0D0D0D).copy(alpha = 0.85f),
                     ) {
                         Icon(
                             imageVector = LucideCopy,
                             contentDescription = "Copy to clipboard",
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.padding(4.dp).size(14.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
