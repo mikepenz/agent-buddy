@@ -5,3 +5,8 @@ build/
 local.properties
 .superpowers/
 template/
+
+
+
+.claude/*.local.json
+.claude/*.local.md.claude/settings.local.json
