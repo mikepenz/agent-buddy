@@ -2,6 +2,7 @@ package com.mikepenz.agentapprover.server
 
 import co.touchlab.kermit.Logger
 import com.mikepenz.agentapprover.model.Decision
+import com.mikepenz.agentapprover.model.PermissionSuggestion
 import com.mikepenz.agentapprover.model.ToolType
 import com.mikepenz.agentapprover.state.AppStateManager
 import io.ktor.http.*
@@ -10,6 +11,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -59,9 +62,12 @@ fun Route.approvalRoute(
             }
 
             val responseJson = when (result.decision) {
-                Decision.APPROVED, Decision.AUTO_APPROVED, Decision.ALWAYS_ALLOWED -> {
+                Decision.APPROVED, Decision.AUTO_APPROVED -> {
                     val updatedInput = stateManager.getAndClearUpdatedInput(request.id)
                     buildAllowResponse(updatedInput).toString()
+                }
+                Decision.ALWAYS_ALLOWED -> {
+                    buildAlwaysAllowResponse(request.hookInput.permissionSuggestions).toString()
                 }
                 Decision.DENIED, Decision.AUTO_DENIED, Decision.TIMEOUT ->
                     buildDenyResponse(result.feedback ?: "Request denied").toString()
@@ -93,6 +99,16 @@ private fun buildAllowResponse(updatedInput: Map<String, JsonElement>? = null) =
             if (updatedInput != null) {
                 put("updatedInput", JsonObject(updatedInput))
             }
+        })
+    })
+}
+
+private fun buildAlwaysAllowResponse(suggestions: List<PermissionSuggestion>) = buildJsonObject {
+    put("hookSpecificOutput", buildJsonObject {
+        put("hookEventName", "PermissionRequest")
+        put("decision", buildJsonObject {
+            put("behavior", "allow")
+            put("updatedPermissions", Json.encodeToJsonElement(suggestions))
         })
     })
 }
