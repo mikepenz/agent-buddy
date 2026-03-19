@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateSetOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,7 +30,6 @@ import com.mikepenz.agentapprover.ui.approvals.ApprovalsTab
 import com.mikepenz.agentapprover.ui.approvals.RiskStatus
 import com.mikepenz.agentapprover.ui.history.HistoryTab
 import com.mikepenz.agentapprover.ui.settings.SettingsTab
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -38,10 +38,10 @@ fun App(
     stateManager: AppStateManager,
     hookRegistrar: HookRegistrar,
     riskAnalyzer: RiskAnalyzer,
-    coroutineScope: CoroutineScope,
 ) {
     val state by stateManager.state.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+    val coroutineScope = rememberCoroutineScope()
 
     val riskStatuses = remember { mutableStateMapOf<String, RiskStatus>() }
     val riskErrors = remember { mutableStateMapOf<String, String>() }
@@ -56,46 +56,45 @@ fun App(
                 knownIds.add(approval.id)
                 if (state.settings.riskAnalysisEnabled) {
                     riskStatuses[approval.id] = RiskStatus.ANALYZING
-                    riskAnalyzer.analyze(
-                        request = approval,
-                        onResult = { analysis ->
+                    coroutineScope.launch {
+                        val result = riskAnalyzer.analyze(approval.hookInput)
+                        result.onSuccess { analysis ->
                             riskStatuses[approval.id] = RiskStatus.COMPLETED
                             stateManager.updateRiskResult(approval.id, analysis)
 
                             // Auto-actions based on risk level
                             if (analysis.risk == 1 && state.settings.autoApproveRisk1) {
-                                coroutineScope.launch {
-                                    delay(500)
+                                delay(500)
+                                stateManager.resolve(
+                                    requestId = approval.id,
+                                    decision = Decision.AUTO_APPROVED,
+                                    feedback = "Auto-approved: risk level 1",
+                                    riskAnalysis = analysis,
+                                    rawResponseJson = null,
+                                )
+                            } else if (analysis.risk == 5 && state.settings.autoDenyRisk5) {
+                                autoDenyRequests.add(approval.id)
+                                delay(15_000)
+                                if (approval.id in autoDenyRequests) {
+                                    autoDenyRequests.remove(approval.id)
                                     stateManager.resolve(
                                         requestId = approval.id,
-                                        decision = Decision.AUTO_APPROVED,
-                                        feedback = "Auto-approved: risk level 1",
+                                        decision = Decision.AUTO_DENIED,
+                                        feedback = "Auto-denied: risk level 5",
                                         riskAnalysis = analysis,
                                         rawResponseJson = null,
                                     )
                                 }
-                            } else if (analysis.risk == 5 && state.settings.autoDenyRisk5) {
-                                autoDenyRequests.add(approval.id)
-                                coroutineScope.launch {
-                                    delay(15_000)
-                                    if (approval.id in autoDenyRequests) {
-                                        autoDenyRequests.remove(approval.id)
-                                        stateManager.resolve(
-                                            requestId = approval.id,
-                                            decision = Decision.AUTO_DENIED,
-                                            feedback = "Auto-denied: risk level 5",
-                                            riskAnalysis = analysis,
-                                            rawResponseJson = null,
-                                        )
-                                    }
-                                }
                             }
-                        },
-                        onError = { error ->
+                        }.onFailure { error ->
                             riskStatuses[approval.id] = RiskStatus.ERROR
-                            riskErrors[approval.id] = error
-                        },
-                    )
+                            riskErrors[approval.id] = when {
+                                error.message?.contains("CLI not found") == true -> "CLI not found"
+                                error.message?.contains("timed out") == true -> "Timeout"
+                                else -> "Error"
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -157,13 +156,14 @@ fun App(
                         rawResponseJson = null,
                     )
                 },
-                onSendResponse = { requestId, response ->
+                onApproveWithInput = { requestId, updatedInput ->
                     stateManager.resolve(
                         requestId = requestId,
-                        decision = Decision.DENIED,
-                        feedback = "User response: $response",
+                        decision = Decision.APPROVED,
+                        feedback = "User answered question",
                         riskAnalysis = null,
                         rawResponseJson = null,
+                        updatedInput = updatedInput,
                     )
                 },
                 onDismiss = { requestId ->

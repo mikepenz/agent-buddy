@@ -30,8 +30,8 @@ fun HistoryTab(history: List<ApprovalResult>) {
         } else {
             val query = filterText.trim().lowercase()
             history.filter { result ->
-                result.request.toolName.lowercase().contains(query) ||
-                    result.request.sessionId.lowercase().contains(query) ||
+                result.request.hookInput.toolName.lowercase().contains(query) ||
+                    result.request.hookInput.sessionId.lowercase().contains(query) ||
                     result.decision.name.lowercase().contains(query) ||
                     (result.riskAnalysis?.risk?.toString() == query)
             }
@@ -95,16 +95,18 @@ private fun sampleResult(
     request = ApprovalRequest(
         id = id,
         source = Source.CLAUDE_CODE,
-        toolName = toolName,
         toolType = toolType,
-        toolInput = toolInput,
-        sessionId = "session-abc",
-        cwd = "/home/user/project",
+        hookInput = HookInput(
+            sessionId = "session-abc",
+            toolName = toolName,
+            toolInput = toolInput,
+            cwd = "/home/user/project",
+        ),
         timestamp = Clock.System.now() - minutesAgo.minutes,
         rawRequestJson = """{"tool":"$toolName"}""",
     ),
     decision = decision,
-    riskAnalysis = risk?.let { RiskAnalysis(risk = it, message = "Sample") },
+    riskAnalysis = risk?.let { RiskAnalysis(risk = it, label = "", message = "Sample") },
     rawResponseJson = """{"ok":true}""",
     decidedAt = Clock.System.now() - minutesAgo.minutes,
 )

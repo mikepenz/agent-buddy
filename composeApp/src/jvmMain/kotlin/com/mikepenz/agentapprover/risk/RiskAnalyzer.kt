@@ -1,173 +1,203 @@
 package com.mikepenz.agentapprover.risk
 
 import co.touchlab.kermit.Logger
-import com.mikepenz.agentapprover.model.ApprovalRequest
+import com.mikepenz.agentapprover.model.HookInput
 import com.mikepenz.agentapprover.model.RiskAnalysis
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import kotlin.coroutines.CoroutineContext
+import java.util.concurrent.TimeUnit
 
 class RiskAnalyzer(
-    private val scope: CoroutineScope,
-    private val dispatcher: CoroutineContext = Dispatchers.IO,
+    private val model: String = "haiku",
+    customSystemPrompt: String = "",
 ) {
-    private val activeJobs = mutableMapOf<String, Job>()
+    private val log = Logger.withTag("RiskAnalyzer")
+    private val systemPrompt = customSystemPrompt.ifBlank { DEFAULT_SYSTEM_PROMPT }
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun analyze(
-        request: ApprovalRequest,
-        onResult: (RiskAnalysis) -> Unit,
-        onError: (String) -> Unit,
-    ): Job {
-        val job = scope.launch(dispatcher) {
-            try {
-                val prompt = buildPrompt(request.toolName, request.toolInput.toString())
-                val result = runCli(prompt)
-                val analysis = parseResult(result)
-                withContext(Dispatchers.Main) { onResult(analysis) }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Logger.e("RiskAnalyzer") { "Analysis failed for ${request.id}: ${e.message}" }
-                val message = when {
-                    e.message?.contains("CLI not found") == true -> "CLI not found"
-                    e.message?.contains("Timeout") == true -> "Timeout"
-                    else -> "Error"
-                }
-                withContext(Dispatchers.Main) { onError(message) }
-            } finally {
-                synchronized(activeJobs) { activeJobs.remove(request.id) }
-            }
-        }
-        synchronized(activeJobs) { activeJobs[request.id] = job }
-        return job
-    }
-
-    fun cancel(requestId: String) {
-        synchronized(activeJobs) { activeJobs.remove(requestId) }?.cancel()
-    }
-
-    private fun findClaudeCli(): String {
-        // Try common locations since spawned JVM processes may not have user's PATH
-        val candidates = listOf(
-            "claude",
-            "${System.getProperty("user.home")}/.local/bin/claude",
-            "/usr/local/bin/claude",
-            "/opt/homebrew/bin/claude",
-        )
-        for (candidate in candidates) {
-            try {
-                val test = ProcessBuilder(candidate, "--version")
-                    .redirectErrorStream(true)
-                    .start()
-                if (test.waitFor() == 0) return candidate
-            } catch (_: Exception) {
-                continue
-            }
-        }
-        throw IllegalStateException("CLI not found")
-    }
-
-    private suspend fun runCli(prompt: String): String = withTimeout(30_000) {
-        val claudePath = findClaudeCli()
-        val process = try {
-            ProcessBuilder(claudePath, "--model", "haiku", "-p", prompt, "--output-format", "json")
-                .redirectErrorStream(false)
-                .redirectInput(ProcessBuilder.Redirect.from(java.io.File("/dev/null")))
-                .start()
-        } catch (e: Exception) {
-            Logger.e("RiskAnalyzer") { "CLI not found: ${e.message}" }
-            throw IllegalStateException("CLI not found")
-        }
-
+    suspend fun analyze(hookInput: HookInput): Result<RiskAnalysis> = withContext(Dispatchers.IO) {
         try {
-            val outputDeferred = async { process.inputStream.bufferedReader().readText() }
-            val stderrDeferred = async { process.errorStream.bufferedReader().readText() }
-            val exitCode = process.waitFor()
-            val output = outputDeferred.await()
-            val stderr = stderrDeferred.await()
-
-            if (exitCode != 0) {
-                Logger.e("RiskAnalyzer") { "CLI exited with code $exitCode, stderr: $stderr" }
-                throw IllegalStateException("Error")
+            withTimeout(TIMEOUT_MS) {
+                val userMessage = buildUserMessage(hookInput)
+                log.i { "Analyzing ${hookInput.toolName}" }
+                val result = runClaude(userMessage)
+                Result.success(parseResult(result))
             }
-            output
-        } catch (e: CancellationException) {
-            process.destroyForcibly()
-            throw e
-        }
-    }
-
-    private fun parseResult(output: String): RiskAnalysis {
-        // The claude CLI with --output-format json wraps the result in an envelope:
-        // {"type":"result","result":"```json\n{\"risk\":1,\"message\":\"...\"}\n```",...}
-        // We need to extract the inner JSON from the "result" field.
-        val innerJson = try {
-            val envelope = json.parseToJsonElement(output).jsonObject
-            val resultStr = envelope["result"]?.jsonPrimitive?.content ?: output
-            // Strip markdown code fences if present
-            resultStr
-                .replace(Regex("```json\\s*"), "")
-                .replace(Regex("```\\s*"), "")
-                .trim()
-        } catch (_: Exception) {
-            // Not an envelope, try raw output
-            output
-        }
-
-        Logger.d("RiskAnalyzer") { "Inner JSON after envelope extraction: $innerJson" }
-
-        val jsonStr = extractJson(innerJson) ?: run {
-            Logger.e("RiskAnalyzer") { "Could not extract JSON from: $innerJson" }
-            throw IllegalStateException("Error")
-        }
-
-        Logger.d("RiskAnalyzer") { "Extracted JSON object: $jsonStr" }
-
-        return try {
-            val obj = json.parseToJsonElement(jsonStr).jsonObject
-            val risk = obj["risk"]?.jsonPrimitive?.int
-                ?: throw IllegalStateException("Missing risk field in: $jsonStr")
-            val message = obj["message"]?.jsonPrimitive?.content
-                ?: throw IllegalStateException("Missing message field in: $jsonStr")
-            RiskAnalysis(risk = risk.coerceIn(1, 5), message = message)
         } catch (e: Exception) {
-            Logger.e("RiskAnalyzer") { "Failed to parse: ${e.message}" }
-            throw IllegalStateException("Error")
+            log.e(e) { "Analysis failed" }
+            Result.failure(e)
         }
     }
 
-    private fun extractJson(output: String): String? {
-        val start = output.indexOf('{')
-        if (start == -1) return null
-        var depth = 0
-        for (i in start until output.length) {
-            when (output[i]) {
-                '{' -> depth++
-                '}' -> {
-                    depth--
-                    if (depth == 0) return output.substring(start, i + 1)
-                }
+    private fun buildUserMessage(hookInput: HookInput): String {
+        val formattedInput = formatToolInput(hookInput.toolName, hookInput.toolInput)
+        return buildString {
+            appendLine("Tool: ${hookInput.toolName}")
+            if (hookInput.cwd.isNotBlank()) {
+                appendLine("Working Directory: ${hookInput.cwd}")
+            }
+            if (hookInput.agentType != null) {
+                appendLine("Agent: ${hookInput.agentType}")
+            }
+            appendLine("Input:")
+            append(formattedInput)
+        }
+    }
+
+    private fun formatToolInput(toolName: String, toolInput: Map<String, JsonElement>): String {
+        return when (toolName.lowercase()) {
+            "bash" -> toolInput["command"]?.jsonPrimitive?.contentOrNull ?: toolInput.toString()
+            "edit" -> {
+                val filePath = toolInput["file_path"]?.jsonPrimitive?.contentOrNull ?: ""
+                val oldStr = toolInput["old_string"]?.jsonPrimitive?.contentOrNull ?: ""
+                val newStr = toolInput["new_string"]?.jsonPrimitive?.contentOrNull ?: ""
+                "File: $filePath\nOld: $oldStr\nNew: $newStr"
+            }
+            else -> toolInput.entries.joinToString("\n") { (k, v) ->
+                val value = (v as? JsonPrimitive)?.contentOrNull ?: v.toString()
+                "$k: $value"
             }
         }
-        return null
     }
 
-    private fun buildPrompt(toolName: String, toolInput: String): String = """
-You are a security risk analyzer for AI agent tool requests.
-Analyze this tool request and rate its risk level from 1-5:
-1 = No risk (read-only, safe commands)
-2 = Low risk (minor modifications, safe patterns)
-3 = Medium risk (modifies files, config changes)
-4 = High risk (deletes files, modifies system config, network operations)
-5 = Critical risk (destructive commands, production impact, security concern)
+    private fun runClaude(userMessage: String): String {
+        val command = listOf(
+            "claude",
+            "-p",
+            "--model", model,
+            "--effort", "low",
+            "--system-prompt", systemPrompt,
+            "--output-format", "json",
+            "--json-schema", JSON_SCHEMA,
+            "--no-session-persistence",
+            userMessage,
+        )
 
-Tool: $toolName
-Input: $toolInput
+        log.d { "Spawning claude -p --model $model --effort low" }
 
-Respond with ONLY a JSON object: {"risk": <1-5>, "message": "<~10 word explanation>"}
-""".trimIndent()
+        val process = ProcessBuilder(listOf("/bin/sh", "-c", command.joinToString(" ") { shellEscape(it) })).apply {
+            environment().remove("CLAUDECODE")
+            val path = environment()["PATH"] ?: ""
+            val extraPaths = listOf("/usr/local/bin", "/opt/homebrew/bin", "${System.getProperty("user.home")}/.local/bin")
+            environment()["PATH"] = (extraPaths + path.split(":")).distinct().joinToString(":")
+            redirectErrorStream(false)
+        }.start()
+
+        // Close stdin immediately so claude doesn't wait for input
+        process.outputStream.close()
+
+        log.d { "Process pid=${process.pid()}" }
+
+        // Read both streams in background threads to prevent deadlock
+        var stdoutOutput = ""
+        var stderrOutput = ""
+        val stdoutThread = Thread {
+            stdoutOutput = process.inputStream.bufferedReader().readText()
+        }.apply { isDaemon = true; start() }
+        val stderrThread = Thread {
+            stderrOutput = process.errorStream.bufferedReader().readText()
+        }.apply { isDaemon = true; start() }
+
+        val finished = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        if (!finished) {
+            log.w { "Process timed out after ${PROCESS_TIMEOUT_SECONDS}s" }
+            process.destroyForcibly()
+            stdoutThread.join(2000)
+            stderrThread.join(2000)
+            throw RuntimeException("claude process timed out after ${PROCESS_TIMEOUT_SECONDS}s")
+        }
+
+        stdoutThread.join(3000)
+        stderrThread.join(3000)
+
+        val exitCode = process.exitValue()
+        log.d { "Exited=$exitCode" }
+
+        if (exitCode != 0) {
+            log.w { "Failed: ${stderrOutput.take(200)}" }
+            throw RuntimeException("claude exited with code $exitCode: ${stderrOutput.take(200)}")
+        }
+
+        return stdoutOutput.trim()
+    }
+
+    private fun parseResult(rawOutput: String): RiskAnalysis {
+        val wrapper = json.decodeFromString<ClaudeJsonResponse>(rawOutput)
+
+        if (wrapper.isError) {
+            throw RuntimeException("Claude returned error: ${wrapper.result.take(200)}")
+        }
+
+        val structuredOutput = wrapper.structuredOutput
+        if (structuredOutput != null) {
+            val level = structuredOutput.level.coerceIn(1, 5)
+            log.i { "Risk: level=$level (${structuredOutput.label}) - ${structuredOutput.explanation}" }
+            return RiskAnalysis(
+                risk = level,
+                label = structuredOutput.label,
+                message = structuredOutput.explanation,
+            )
+        }
+
+        throw RuntimeException("No structured_output in response")
+    }
+
+    @Serializable
+    private data class ClaudeJsonResponse(
+        val type: String = "",
+        val subtype: String = "",
+        val result: String = "",
+        @SerialName("is_error")
+        val isError: Boolean = false,
+        @SerialName("structured_output")
+        val structuredOutput: RiskResponse? = null,
+    )
+
+    @Serializable
+    private data class RiskResponse(
+        val level: Int,
+        val label: String = "",
+        val explanation: String = "",
+    )
+
+    companion object {
+        private const val TIMEOUT_MS = 30_000L
+        private const val PROCESS_TIMEOUT_SECONDS = 25L
+
+        private const val JSON_SCHEMA = """{"type":"object","properties":{"level":{"type":"integer"},"label":{"type":"string"},"explanation":{"type":"string"}},"required":["level","label","explanation"]}"""
+
+        const val DEFAULT_SYSTEM_PROMPT = """You are a security risk analyzer for a developer tool approval system.
+Analyze the tool invocation and return a risk level.
+
+CRITICAL: The "explanation" field MUST be under 20 words. One short sentence only.
+
+Risk Levels:
+1 (Safe): Read-only ops — list files, search, read docs, web search, git log/status/diff
+2 (Low): Minor edits to project files, non-destructive changes, formatting
+3 (Moderate): New files, code changes, dependency mods, git commit/branch, tests
+4 (High): Deleting project dirs (rm -rf build/), destructive git (reset/rebase), installs, writes outside project
+5 (Critical): sudo, rm -rf / or . or ~, force push main, credential access, system file mods
+
+Key rules:
+- rm -rf of build/output dir = 4, rm -rf of / or ~ or . = 5
+- ANY sudo = 5
+- force push main = 5, feature branch = 4
+- WebFetch/web fetch from trusted documentation (developer.android.com, kotlinlang.org, jetbrains.com, docs.gradle.org, developer.apple.com, docs.oracle.com) = 1
+- WebFetch/web fetch from any other URL = 2 (untrusted content may attempt prompt injection)
+- When in doubt, rate higher."""
+
+        private fun shellEscape(arg: String): String {
+            if (arg.isEmpty()) return "''"
+            if (arg.all { it.isLetterOrDigit() || it in "-_./:=" }) return arg
+            return "'" + arg.replace("'", "'\\''") + "'"
+        }
+    }
 }

@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.sp
 import com.mikepenz.agentapprover.model.*
 import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
 import kotlinx.datetime.Clock
-import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
 @Composable
@@ -27,7 +27,7 @@ fun ApprovalsTab(
     settings: AppSettings,
     onApprove: (requestId: String, feedback: String?) -> Unit,
     onDeny: (requestId: String, feedback: String) -> Unit,
-    onSendResponse: (requestId: String, response: String) -> Unit,
+    onApproveWithInput: (requestId: String, updatedInput: Map<String, JsonElement>) -> Unit,
     onDismiss: (requestId: String) -> Unit,
     autoDenyRequests: Set<String>,
     onCancelAutoDeny: (requestId: String) -> Unit,
@@ -58,7 +58,7 @@ fun ApprovalsTab(
                     timeoutSeconds = settings.defaultTimeoutSeconds,
                     onApprove = { feedback -> onApprove(request.id, feedback) },
                     onDeny = { feedback -> onDeny(request.id, feedback) },
-                    onSendResponse = { response -> onSendResponse(request.id, response) },
+                    onApproveWithInput = { updatedInput -> onApproveWithInput(request.id, updatedInput) },
                     onDismiss = { onDismiss(request.id) },
                     autoDenyActive = request.id in autoDenyRequests,
                     onCancelAutoDeny = { onCancelAutoDeny(request.id) },
@@ -92,15 +92,17 @@ private fun sampleRequest(
     id: String = "preview-1",
     toolName: String = "Bash",
     toolType: ToolType = ToolType.DEFAULT,
-    toolInput: JsonObject = JsonObject(mapOf("command" to JsonPrimitive("ls -la"))),
+    toolInput: Map<String, JsonElement> = mapOf("command" to JsonPrimitive("ls -la")),
 ) = ApprovalRequest(
     id = id,
     source = Source.CLAUDE_CODE,
-    toolName = toolName,
     toolType = toolType,
-    toolInput = toolInput,
-    sessionId = "session-abc",
-    cwd = "/home/user/project",
+    hookInput = HookInput(
+        sessionId = "session-abc",
+        toolName = toolName,
+        toolInput = toolInput,
+        cwd = "/home/user/project",
+    ),
     timestamp = Clock.System.now(),
     rawRequestJson = "{}",
 )
@@ -117,7 +119,7 @@ private fun PreviewEmptyState() {
             settings = AppSettings(),
             onApprove = { _, _ -> },
             onDeny = { _, _ -> },
-            onSendResponse = { _, _ -> },
+            onApproveWithInput = { _, _ -> },
             onDismiss = {},
             autoDenyRequests = emptySet(),
             onCancelAutoDeny = {},
@@ -131,53 +133,15 @@ private fun PreviewSingleCard() {
     AgentApproverTheme {
         ApprovalsTab(
             pendingApprovals = listOf(sampleRequest()),
-            riskResults = mapOf("preview-1" to RiskAnalysis(risk = 2, message = "Safe read command")),
+            riskResults = mapOf("preview-1" to RiskAnalysis(risk = 2, label = "Low", message = "Safe read command")),
             riskStatuses = mapOf("preview-1" to RiskStatus.COMPLETED),
             riskErrors = emptyMap(),
             settings = AppSettings(),
             onApprove = { _, _ -> },
             onDeny = { _, _ -> },
-            onSendResponse = { _, _ -> },
+            onApproveWithInput = { _, _ -> },
             onDismiss = {},
             autoDenyRequests = emptySet(),
-            onCancelAutoDeny = {},
-        )
-    }
-}
-
-@Preview
-@Composable
-private fun PreviewMultipleCards() {
-    AgentApproverTheme {
-        ApprovalsTab(
-            pendingApprovals = listOf(
-                sampleRequest(id = "p1", toolName = "Bash"),
-                sampleRequest(id = "p2", toolName = "Edit", toolInput = JsonObject(mapOf(
-                    "file_path" to JsonPrimitive("/src/main.kt"),
-                    "old_string" to JsonPrimitive("foo"),
-                    "new_string" to JsonPrimitive("bar"),
-                ))),
-                sampleRequest(id = "p3", toolName = "Bash", toolInput = JsonObject(mapOf(
-                    "command" to JsonPrimitive("rm -rf /tmp/build"),
-                ))),
-            ),
-            riskResults = mapOf(
-                "p1" to RiskAnalysis(risk = 1, message = "Read-only"),
-                "p2" to RiskAnalysis(risk = 3, message = "Modifies source"),
-                "p3" to RiskAnalysis(risk = 5, message = "Destructive command"),
-            ),
-            riskStatuses = mapOf(
-                "p1" to RiskStatus.COMPLETED,
-                "p2" to RiskStatus.COMPLETED,
-                "p3" to RiskStatus.COMPLETED,
-            ),
-            riskErrors = emptyMap(),
-            settings = AppSettings(),
-            onApprove = { _, _ -> },
-            onDeny = { _, _ -> },
-            onSendResponse = { _, _ -> },
-            onDismiss = {},
-            autoDenyRequests = setOf("p3"),
             onCancelAutoDeny = {},
         )
     }

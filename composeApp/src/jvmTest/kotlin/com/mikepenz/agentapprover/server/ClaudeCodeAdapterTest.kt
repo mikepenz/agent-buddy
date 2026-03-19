@@ -17,12 +17,12 @@ class ClaudeCodeAdapterTest {
         val json = """{"session_id":"abc","cwd":"/tmp","hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"npm test"}}"""
         val result = adapter.parse(json)
         assertNotNull(result)
-        assertEquals("Bash", result.toolName)
+        assertEquals("Bash", result.hookInput.toolName)
         assertEquals(ToolType.DEFAULT, result.toolType)
-        assertEquals("abc", result.sessionId)
-        assertEquals("/tmp", result.cwd)
+        assertEquals("abc", result.hookInput.sessionId)
+        assertEquals("/tmp", result.hookInput.cwd)
         assertEquals(Source.CLAUDE_CODE, result.source)
-        assertEquals(JsonPrimitive("npm test"), result.toolInput["command"])
+        assertEquals(JsonPrimitive("npm test"), result.hookInput.toolInput["command"])
         assertEquals(json, result.rawRequestJson)
     }
 
@@ -40,7 +40,7 @@ class ClaudeCodeAdapterTest {
         val result = adapter.parse(json)
         assertNotNull(result)
         assertEquals(ToolType.PLAN, result.toolType)
-        assertEquals("ExitPlanMode", result.toolName)
+        assertEquals("ExitPlanMode", result.hookInput.toolName)
     }
 
     @Test
@@ -59,6 +59,7 @@ class ClaudeCodeAdapterTest {
 
     @Test
     fun missingFieldsReturnsNull() {
+        // Missing tool_name - should fail deserialization
         val json = """{"session_id":"abc"}"""
         val result = adapter.parse(json)
         assertNull(result)

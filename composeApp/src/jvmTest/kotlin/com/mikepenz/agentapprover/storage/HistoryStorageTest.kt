@@ -2,7 +2,6 @@ package com.mikepenz.agentapprover.storage
 
 import com.mikepenz.agentapprover.model.*
 import kotlinx.datetime.Clock
-import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -12,11 +11,12 @@ class HistoryStorageTest {
         request = ApprovalRequest(
             id = "req-$index",
             source = Source.CLAUDE_CODE,
-            toolName = "tool-$index",
             toolType = ToolType.DEFAULT,
-            toolInput = buildJsonObject {},
-            sessionId = "session-1",
-            cwd = "/tmp",
+            hookInput = HookInput(
+                sessionId = "session-1",
+                toolName = "tool-$index",
+                cwd = "/tmp",
+            ),
             timestamp = Clock.System.now(),
             rawRequestJson = "{}",
         ),

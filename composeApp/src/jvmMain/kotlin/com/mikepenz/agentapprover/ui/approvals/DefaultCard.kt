@@ -25,7 +25,7 @@ fun DefaultCard(
     Column(modifier = Modifier.fillMaxWidth()) {
         // Session ID
         Text(
-            text = "Session: ${request.sessionId}",
+            text = "Session: ${request.hookInput.sessionId}",
             fontSize = 10.sp,
             color = Color.Gray,
         )
@@ -81,8 +81,8 @@ fun DefaultCard(
 }
 
 private fun formatContent(request: ApprovalRequest): String {
-    val toolName = request.toolName.lowercase()
-    val input = request.toolInput
+    val toolName = request.hookInput.toolName.lowercase()
+    val input = request.hookInput.toolInput
     return when {
         toolName == "bash" -> {
             val command = input["command"]?.jsonPrimitive?.contentOrNull ?: input.toString()
@@ -103,7 +103,7 @@ private fun formatContent(request: ApprovalRequest): String {
         }
         else -> {
             val json = Json { prettyPrint = true }
-            "```json\n${json.encodeToString(JsonObject.serializer(), input)}\n```"
+            "```json\n${json.encodeToString(JsonObject.serializer(), JsonObject(input))}\n```"
         }
     }
 }
@@ -118,11 +118,13 @@ private fun PreviewBashCard() {
                     request = ApprovalRequest(
                         id = "preview-1",
                         source = Source.CLAUDE_CODE,
-                        toolName = "Bash",
                         toolType = ToolType.DEFAULT,
-                        toolInput = JsonObject(mapOf("command" to JsonPrimitive("git status && git diff HEAD"))),
-                        sessionId = "sess-abc123",
-                        cwd = "/home/user/project",
+                        hookInput = HookInput(
+                            sessionId = "sess-abc123",
+                            toolName = "Bash",
+                            toolInput = mapOf("command" to JsonPrimitive("git status && git diff HEAD")),
+                            cwd = "/home/user/project",
+                        ),
                         timestamp = Clock.System.now(),
                         rawRequestJson = "{}",
                     ),

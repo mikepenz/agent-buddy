@@ -2,13 +2,11 @@ package com.mikepenz.agentapprover.server
 
 import co.touchlab.kermit.Logger
 import com.mikepenz.agentapprover.model.ApprovalRequest
+import com.mikepenz.agentapprover.model.HookInput
 import com.mikepenz.agentapprover.model.Source
 import com.mikepenz.agentapprover.model.ToolType
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 
 class ClaudeCodeAdapter {
@@ -18,21 +16,18 @@ class ClaudeCodeAdapter {
 
     fun parse(rawJson: String): ApprovalRequest? {
         return try {
-            val root = json.parseToJsonElement(rawJson).jsonObject
-            val sessionId = root["session_id"]?.jsonPrimitive?.content ?: return null.also {
+            val hookInput = json.decodeFromString<HookInput>(rawJson)
+
+            if (hookInput.sessionId.isBlank()) {
                 logger.w { "Missing session_id" }
+                return null
             }
-            val cwd = root["cwd"]?.jsonPrimitive?.content ?: return null.also {
-                logger.w { "Missing cwd" }
-            }
-            val toolName = root["tool_name"]?.jsonPrimitive?.content ?: return null.also {
+            if (hookInput.toolName.isBlank()) {
                 logger.w { "Missing tool_name" }
-            }
-            val toolInput = root["tool_input"]?.jsonObject ?: return null.also {
-                logger.w { "Missing tool_input" }
+                return null
             }
 
-            val toolType = when (toolName) {
+            val toolType = when (hookInput.toolName) {
                 "AskUserQuestion" -> ToolType.ASK_USER_QUESTION
                 "Plan", "ExitPlanMode" -> ToolType.PLAN
                 else -> ToolType.DEFAULT
@@ -41,11 +36,8 @@ class ClaudeCodeAdapter {
             ApprovalRequest(
                 id = UUID.randomUUID().toString(),
                 source = Source.CLAUDE_CODE,
-                toolName = toolName,
                 toolType = toolType,
-                toolInput = toolInput,
-                sessionId = sessionId,
-                cwd = cwd,
+                hookInput = hookInput,
                 timestamp = Clock.System.now(),
                 rawRequestJson = rawJson,
             )

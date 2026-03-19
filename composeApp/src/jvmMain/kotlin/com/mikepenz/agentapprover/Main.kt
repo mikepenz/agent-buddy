@@ -10,7 +10,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -79,9 +78,8 @@ fun main() {
     application {
         var isVisible by remember { mutableStateOf(true) }
         var showPortError by remember { mutableStateOf(false) }
-        val coroutineScope = rememberCoroutineScope()
 
-        val riskAnalyzer = remember(coroutineScope) { RiskAnalyzer(coroutineScope) }
+        val riskAnalyzer = remember { RiskAnalyzer() }
 
         val server = remember {
             ApprovalServer(stateManager, onNewApproval = {
@@ -166,7 +164,7 @@ fun main() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background,
                     ) {
-                        App(stateManager, hookRegistrar, riskAnalyzer, coroutineScope)
+                        App(stateManager, hookRegistrar, riskAnalyzer)
                     }
                 }
             }

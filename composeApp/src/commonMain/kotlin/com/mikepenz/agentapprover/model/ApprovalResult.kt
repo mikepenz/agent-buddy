@@ -21,5 +21,6 @@ enum class Decision {
 @Serializable
 data class RiskAnalysis(
     val risk: Int,
+    val label: String = "",
     val message: String,
 )

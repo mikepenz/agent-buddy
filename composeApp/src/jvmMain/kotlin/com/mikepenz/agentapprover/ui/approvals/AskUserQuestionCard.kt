@@ -1,7 +1,6 @@
 package com.mikepenz.agentapprover.ui.approvals
 
 import androidx.compose.desktop.ui.tooling.preview.Preview
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -10,103 +9,136 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import co.touchlab.kermit.Logger
 import com.mikepenz.agentapprover.model.*
 import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
-import com.mikepenz.markdown.m3.Markdown
 import kotlinx.datetime.Clock
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Composable
 fun AskUserQuestionCard(
     request: ApprovalRequest,
-    onSendResponse: (String) -> Unit,
+    questionData: UserQuestionData,
+    onApproveWithInput: (updatedInput: Map<String, JsonElement>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var selectedOption by remember { mutableStateOf<String?>(null) }
-    var customMode by remember { mutableStateOf(false) }
-    var customResponse by remember { mutableStateOf("") }
+    // question index -> selected option indices
+    val selections = remember { mutableStateMapOf<Int, Set<Int>>() }
+    // question index -> custom answer text
+    val customAnswers = remember { mutableStateMapOf<Int, String>() }
 
-    val question = request.toolInput["question"]?.jsonPrimitive?.contentOrNull
-        ?: request.toolInput.toString()
-    val options = request.toolInput["options"]?.jsonArray?.mapNotNull {
-        it.jsonPrimitive.contentOrNull
-    } ?: emptyList()
+    val allAnswered = questionData.questions.indices.all { qIdx ->
+        val question = questionData.questions[qIdx]
+        val hasCustom = (customAnswers[qIdx] ?: "").isNotBlank()
+        if (question.options.isEmpty()) hasCustom
+        else hasCustom || (selections[qIdx]?.isNotEmpty() == true)
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text("No timeout", fontSize = 10.sp, color = Color.Gray)
         Spacer(Modifier.height(8.dp))
 
-        // Question (markdown rendered)
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            shape = MaterialTheme.shapes.small,
-        ) {
-            Box(modifier = Modifier.padding(10.dp)) {
-                Markdown(content = question)
-            }
+        if (request.hookInput.cwd.isNotBlank()) {
+            Text(
+                text = request.hookInput.cwd,
+                fontSize = 10.sp,
+                color = Color.Gray,
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(4.dp))
         }
 
-        Spacer(Modifier.height(8.dp))
+        questionData.questions.forEachIndexed { qIdx, question ->
+            if (question.header.isNotBlank()) {
+                Text(
+                    text = question.header,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(2.dp))
+            }
 
-        // Option selection (radio buttons)
-        if (options.isNotEmpty() && !customMode) {
-            options.forEach { option ->
+            if (question.question.isNotBlank()) {
+                Text(
+                    text = question.question,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+
+            val selected = selections[qIdx] ?: emptySet()
+            val customAnswer = customAnswers[qIdx] ?: ""
+            val hasCustomAnswer = customAnswer.isNotBlank()
+
+            question.options.forEachIndexed { optIdx, option ->
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { selectedOption = option }
-                        .padding(vertical = 4.dp, horizontal = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RadioButton(
-                        selected = selectedOption == option,
-                        onClick = { selectedOption = option },
-                    )
-                    Text(
-                        option,
-                        modifier = Modifier.padding(start = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    if (question.multiSelect) {
+                        Checkbox(
+                            checked = optIdx in selected,
+                            enabled = !hasCustomAnswer,
+                            onCheckedChange = { checked ->
+                                selections[qIdx] = if (checked) {
+                                    selected + optIdx
+                                } else {
+                                    selected - optIdx
+                                }
+                            },
+                        )
+                    } else {
+                        RadioButton(
+                            selected = optIdx in selected,
+                            enabled = !hasCustomAnswer,
+                            onClick = {
+                                selections[qIdx] = setOf(optIdx)
+                            },
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = option.label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (hasCustomAnswer) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
+                        if (option.description.isNotBlank()) {
+                            Text(
+                                text = option.description,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
             }
-        }
 
-        // "or" divider + custom toggle
-        if (options.isNotEmpty()) {
-            Spacer(Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                HorizontalDivider(modifier = Modifier.weight(1f))
-                Text("or", modifier = Modifier.padding(horizontal = 8.dp), fontSize = 11.sp, color = Color.Gray)
-                HorizontalDivider(modifier = Modifier.weight(1f))
-            }
             Spacer(Modifier.height(4.dp))
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { customMode = !customMode; if (!customMode) customResponse = "" },
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(checked = customMode, onCheckedChange = { customMode = it; if (!it) customResponse = "" })
-                Text("Custom response", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-
-        // Custom input (shown when custom mode or no options)
-        if (customMode || options.isEmpty()) {
-            Spacer(Modifier.height(4.dp))
             OutlinedTextField(
-                value = customResponse,
-                onValueChange = { customResponse = it },
+                value = customAnswer,
+                onValueChange = { customAnswers[qIdx] = it.replace("\n", "") },
+                placeholder = { Text("Or type a custom answer...", maxLines = 1) },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Type your response...", fontSize = 12.sp) },
-                textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
-                minLines = 2,
+                textStyle = MaterialTheme.typography.bodySmall,
+                singleLine = true,
             )
+
+            if (qIdx < questionData.questions.lastIndex) {
+                Spacer(Modifier.height(8.dp))
+            }
         }
 
         Spacer(Modifier.height(8.dp))
@@ -116,21 +148,70 @@ fun AskUserQuestionCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+            OutlinedButton(
+                onClick = onDismiss,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) {
                 Text("Dismiss")
             }
             Button(
                 onClick = {
-                    val response = if (customMode || options.isEmpty()) customResponse else selectedOption ?: ""
-                    onSendResponse(response)
+                    val updatedInput = buildUpdatedInput(
+                        request.hookInput.toolInput,
+                        selections,
+                        customAnswers,
+                    )
+                    onApproveWithInput(updatedInput)
                 },
                 modifier = Modifier.weight(1f),
-                enabled = if (customMode || options.isEmpty()) customResponse.isNotBlank() else selectedOption != null,
+                enabled = allAnswered,
             ) {
-                Text("Send Response")
+                Text("Submit")
             }
         }
     }
+}
+
+internal fun buildUpdatedInput(
+    originalInput: Map<String, JsonElement>,
+    selections: Map<Int, Set<Int>>,
+    customAnswers: Map<Int, String>,
+): Map<String, JsonElement> {
+    val result = originalInput.toMutableMap()
+
+    val questionsElement = originalInput["questions"] ?: return result
+
+    try {
+        val questionsArray = questionsElement.jsonArray
+        val answersMap = mutableMapOf<String, JsonElement>()
+
+        questionsArray.forEachIndexed { qIdx, questionElement ->
+            val obj = questionElement.jsonObject
+            val questionText = obj["question"]?.jsonPrimitive?.contentOrNull ?: return@forEachIndexed
+
+            val customAnswer = customAnswers[qIdx]?.takeIf { it.isNotBlank() }
+            val answerValue = if (customAnswer != null) {
+                customAnswer
+            } else {
+                val selectedIndices = selections[qIdx] ?: emptySet()
+                val options = (obj["options"] as? JsonArray)
+                selectedIndices.sorted().mapNotNull { idx ->
+                    options?.getOrNull(idx)?.jsonObject?.get("label")?.jsonPrimitive?.contentOrNull
+                }.joinToString(", ")
+            }
+
+            if (answerValue.isNotBlank()) {
+                answersMap[questionText] = JsonPrimitive(answerValue)
+            }
+        }
+
+        result["answers"] = JsonObject(answersMap)
+    } catch (e: Exception) {
+        Logger.w(e) { "Failed to build updated input for AskUserQuestion" }
+    }
+
+    return result
 }
 
 @Preview
@@ -143,56 +224,48 @@ private fun PreviewAskUserQuestionWithOptions() {
                     request = ApprovalRequest(
                         id = "preview-ask",
                         source = Source.CLAUDE_CODE,
-                        toolName = "AskUserQuestion",
                         toolType = ToolType.ASK_USER_QUESTION,
-                        toolInput = JsonObject(
-                            mapOf(
-                                "question" to JsonPrimitive("Which database backend should I use for this project?"),
-                                "options" to JsonArray(
-                                    listOf(
-                                        JsonPrimitive("PostgreSQL"),
-                                        JsonPrimitive("SQLite"),
-                                        JsonPrimitive("MySQL"),
-                                    )
+                        hookInput = HookInput(
+                            sessionId = "sess-abc123",
+                            toolName = "AskUserQuestion",
+                            toolInput = mapOf(
+                                "questions" to kotlinx.serialization.json.JsonArray(listOf(
+                                    JsonObject(mapOf(
+                                        "question" to JsonPrimitive("Which database?"),
+                                        "header" to JsonPrimitive("Database Choice"),
+                                        "options" to kotlinx.serialization.json.JsonArray(listOf(
+                                            JsonObject(mapOf(
+                                                "label" to JsonPrimitive("PostgreSQL"),
+                                                "description" to JsonPrimitive("Robust relational DB"),
+                                            )),
+                                            JsonObject(mapOf(
+                                                "label" to JsonPrimitive("SQLite"),
+                                                "description" to JsonPrimitive("Lightweight embedded DB"),
+                                            )),
+                                        )),
+                                        "multiSelect" to JsonPrimitive(false),
+                                    )),
+                                )),
+                            ),
+                            cwd = "/home/user/project",
+                        ),
+                        timestamp = Clock.System.now(),
+                        rawRequestJson = "{}",
+                    ),
+                    questionData = UserQuestionData(
+                        questions = listOf(
+                            Question(
+                                header = "Database Choice",
+                                question = "Which database?",
+                                options = listOf(
+                                    QuestionOption(label = "PostgreSQL", description = "Robust relational DB"),
+                                    QuestionOption(label = "SQLite", description = "Lightweight embedded DB"),
                                 ),
-                            )
+                                multiSelect = false,
+                            ),
                         ),
-                        sessionId = "sess-abc123",
-                        cwd = "/home/user/project",
-                        timestamp = Clock.System.now(),
-                        rawRequestJson = "{}",
                     ),
-                    onSendResponse = {},
-                    onDismiss = {},
-                )
-            }
-        }
-    }
-}
-
-@Preview
-@Composable
-private fun PreviewAskUserQuestionCustomOnly() {
-    AgentApproverTheme {
-        Surface(color = MaterialTheme.colorScheme.background) {
-            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
-                AskUserQuestionCard(
-                    request = ApprovalRequest(
-                        id = "preview-ask-custom",
-                        source = Source.CLAUDE_CODE,
-                        toolName = "AskUserQuestion",
-                        toolType = ToolType.ASK_USER_QUESTION,
-                        toolInput = JsonObject(
-                            mapOf(
-                                "question" to JsonPrimitive("What name would you like for the new module?"),
-                            )
-                        ),
-                        sessionId = "sess-def456",
-                        cwd = "/home/user/project",
-                        timestamp = Clock.System.now(),
-                        rawRequestJson = "{}",
-                    ),
-                    onSendResponse = {},
+                    onApproveWithInput = {},
                     onDismiss = {},
                 )
             }

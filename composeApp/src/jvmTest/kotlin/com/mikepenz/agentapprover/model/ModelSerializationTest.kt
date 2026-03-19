@@ -2,7 +2,6 @@ package com.mikepenz.agentapprover.model
 
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,11 +16,13 @@ class ModelSerializationTest {
         val request = ApprovalRequest(
             id = "test-id",
             source = Source.CLAUDE_CODE,
-            toolName = "Bash",
             toolType = ToolType.DEFAULT,
-            toolInput = JsonObject(mapOf("command" to JsonPrimitive("npm test"))),
-            sessionId = "session-1",
-            cwd = "/tmp",
+            hookInput = HookInput(
+                sessionId = "session-1",
+                toolName = "Bash",
+                toolInput = mapOf("command" to JsonPrimitive("npm test")),
+                cwd = "/tmp",
+            ),
             timestamp = Clock.System.now(),
             rawRequestJson = "{}",
         )
@@ -35,11 +36,13 @@ class ModelSerializationTest {
         val request = ApprovalRequest(
             id = "test-id",
             source = Source.CLAUDE_CODE,
-            toolName = "Bash",
             toolType = ToolType.DEFAULT,
-            toolInput = JsonObject(mapOf("command" to JsonPrimitive("npm test"))),
-            sessionId = "session-1",
-            cwd = "/tmp",
+            hookInput = HookInput(
+                sessionId = "session-1",
+                toolName = "Bash",
+                toolInput = mapOf("command" to JsonPrimitive("npm test")),
+                cwd = "/tmp",
+            ),
             timestamp = Clock.System.now(),
             rawRequestJson = "{}",
         )
@@ -47,7 +50,7 @@ class ModelSerializationTest {
             request = request,
             decision = Decision.APPROVED,
             feedback = "Looks good",
-            riskAnalysis = RiskAnalysis(risk = 3, message = "Medium risk"),
+            riskAnalysis = RiskAnalysis(risk = 3, label = "Moderate", message = "Medium risk"),
             rawResponseJson = """{"approved":true}""",
             decidedAt = Clock.System.now(),
         )
@@ -61,11 +64,12 @@ class ModelSerializationTest {
         val request = ApprovalRequest(
             id = "test-id-2",
             source = Source.CLAUDE_CODE,
-            toolName = "Ask",
             toolType = ToolType.ASK_USER_QUESTION,
-            toolInput = JsonObject(emptyMap()),
-            sessionId = "session-2",
-            cwd = "/home",
+            hookInput = HookInput(
+                sessionId = "session-2",
+                toolName = "Ask",
+                cwd = "/home",
+            ),
             timestamp = Clock.System.now(),
             rawRequestJson = "{}",
         )

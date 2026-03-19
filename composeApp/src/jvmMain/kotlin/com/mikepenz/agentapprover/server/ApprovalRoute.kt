@@ -10,6 +10,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.coroutines.cancellation.CancellationException
@@ -57,7 +59,10 @@ fun Route.approvalRoute(
             }
 
             val responseJson = when (result.decision) {
-                Decision.APPROVED, Decision.AUTO_APPROVED -> buildAllowResponse().toString()
+                Decision.APPROVED, Decision.AUTO_APPROVED -> {
+                    val updatedInput = stateManager.getAndClearUpdatedInput(request.id)
+                    buildAllowResponse(updatedInput).toString()
+                }
                 Decision.DENIED, Decision.AUTO_DENIED, Decision.TIMEOUT ->
                     buildDenyResponse(result.feedback ?: "Request denied").toString()
                 Decision.CANCELLED_BY_CLIENT -> null
@@ -80,11 +85,14 @@ fun Route.approvalRoute(
     }
 }
 
-private fun buildAllowResponse() = buildJsonObject {
+private fun buildAllowResponse(updatedInput: Map<String, JsonElement>? = null) = buildJsonObject {
     put("hookSpecificOutput", buildJsonObject {
         put("hookEventName", "PermissionRequest")
         put("decision", buildJsonObject {
             put("behavior", "allow")
+            if (updatedInput != null) {
+                put("updatedInput", JsonObject(updatedInput))
+            }
         })
     })
 }

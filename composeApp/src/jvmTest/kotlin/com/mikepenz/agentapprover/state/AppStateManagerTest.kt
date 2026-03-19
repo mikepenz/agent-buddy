@@ -2,7 +2,6 @@ package com.mikepenz.agentapprover.state
 
 import com.mikepenz.agentapprover.model.*
 import kotlinx.datetime.Clock
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -10,10 +9,14 @@ import kotlin.test.assertTrue
 
 class AppStateManagerTest {
     private fun makeRequest(id: String) = ApprovalRequest(
-        id = id, source = Source.CLAUDE_CODE, toolName = "Bash",
+        id = id, source = Source.CLAUDE_CODE,
         toolType = ToolType.DEFAULT,
-        toolInput = JsonObject(mapOf("command" to JsonPrimitive("ls"))),
-        sessionId = "s1", cwd = "/tmp",
+        hookInput = HookInput(
+            sessionId = "s1",
+            toolName = "Bash",
+            toolInput = mapOf("command" to JsonPrimitive("ls")),
+            cwd = "/tmp",
+        ),
         timestamp = Clock.System.now(), rawRequestJson = "{}"
     )
 

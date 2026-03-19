@@ -20,8 +20,7 @@ import com.mikepenz.agentapprover.model.*
 import com.mikepenz.agentapprover.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonElement
 
 enum class RiskStatus { IDLE, ANALYZING, COMPLETED, ERROR }
 
@@ -34,7 +33,7 @@ fun ApprovalCard(
     timeoutSeconds: Int,
     onApprove: (String?) -> Unit,
     onDeny: (String) -> Unit,
-    onSendResponse: (String) -> Unit,
+    onApproveWithInput: (Map<String, JsonElement>) -> Unit,
     onDismiss: () -> Unit,
     autoDenyActive: Boolean,
     onCancelAutoDeny: () -> Unit,
@@ -63,6 +62,18 @@ fun ApprovalCard(
 
     val effectiveBorder = if (flashGreen) RiskSafe else borderColor
 
+    // Parse special tool data
+    val questionData = remember(request) {
+        if (request.toolType == ToolType.ASK_USER_QUESTION) {
+            SpecialToolParser.parseUserQuestion(request.hookInput.toolInput)
+        } else null
+    }
+    val planData = remember(request) {
+        if (request.toolType == ToolType.PLAN) {
+            SpecialToolParser.parsePlanReview(request.hookInput.toolInput)
+        } else null
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -84,25 +95,29 @@ fun ApprovalCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ToolBadge(toolName = request.toolName, toolType = request.toolType)
+                        ToolBadge(toolName = request.hookInput.toolName, toolType = request.toolType)
                         RiskBadge(riskResult = riskResult, riskStatus = riskStatus, riskError = riskError)
                     }
 
                     Spacer(Modifier.height(8.dp))
 
                     // Delegate to specific card content
-                    when (request.toolType) {
-                        ToolType.ASK_USER_QUESTION -> AskUserQuestionCard(
-                            request = request,
-                            onSendResponse = onSendResponse,
-                            onDismiss = onDismiss,
-                        )
-                        ToolType.PLAN -> PlanCard(
-                            request = request,
-                            onApprove = onApprove,
-                            onDeny = onDeny,
-                        )
-                        ToolType.DEFAULT -> DefaultCard(
+                    when {
+                        request.toolType == ToolType.ASK_USER_QUESTION && questionData != null ->
+                            AskUserQuestionCard(
+                                request = request,
+                                questionData = questionData,
+                                onApproveWithInput = onApproveWithInput,
+                                onDismiss = onDismiss,
+                            )
+                        request.toolType == ToolType.PLAN && planData != null ->
+                            PlanCard(
+                                request = request,
+                                planData = planData,
+                                onApprove = onApprove,
+                                onDeny = onDeny,
+                            )
+                        else -> DefaultCard(
                             request = request,
                             onApprove = onApprove,
                             onDeny = onDeny,
@@ -187,6 +202,7 @@ fun RiskBadge(riskResult: RiskAnalysis?, riskStatus: RiskStatus, riskError: Stri
         }
         riskResult != null -> {
             val color = riskColor(riskResult.risk)
+            val label = riskResult.label.ifBlank { riskLabel(riskResult.risk) }
             Surface(
                 shape = RoundedCornerShape(4.dp),
                 color = color.copy(alpha = 0.2f),
@@ -196,7 +212,7 @@ fun RiskBadge(riskResult: RiskAnalysis?, riskStatus: RiskStatus, riskError: Stri
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Risk ${riskResult.risk} - ${riskLabel(riskResult.risk)}",
+                        text = "Risk ${riskResult.risk} - $label",
                         color = color,
                         fontSize = 10.sp,
                     )
@@ -247,15 +263,17 @@ private fun AutoDenyOverlay(onCancel: () -> Unit) {
 private fun sampleRequest(
     toolName: String = "Bash",
     toolType: ToolType = ToolType.DEFAULT,
-    toolInput: JsonObject = JsonObject(mapOf("command" to JsonPrimitive("ls -la"))),
+    toolInput: Map<String, JsonElement> = mapOf("command" to kotlinx.serialization.json.JsonPrimitive("ls -la")),
 ) = ApprovalRequest(
     id = "preview-1",
     source = Source.CLAUDE_CODE,
-    toolName = toolName,
     toolType = toolType,
-    toolInput = toolInput,
-    sessionId = "session-abc",
-    cwd = "/home/user/project",
+    hookInput = HookInput(
+        sessionId = "session-abc",
+        toolName = toolName,
+        toolInput = toolInput,
+        cwd = "/home/user/project",
+    ),
     timestamp = Clock.System.now(),
     rawRequestJson = "{}",
 )
@@ -270,7 +288,7 @@ private fun PreviewAnalyzing() {
             riskStatus = RiskStatus.ANALYZING,
             riskError = null,
             timeoutSeconds = 120,
-            onApprove = {}, onDeny = {}, onSendResponse = {}, onDismiss = {},
+            onApprove = {}, onDeny = {}, onApproveWithInput = {}, onDismiss = {},
             autoDenyActive = false, onCancelAutoDeny = {},
         )
     }
@@ -282,11 +300,11 @@ private fun PreviewRisk1() {
     AgentApproverTheme {
         ApprovalCard(
             request = sampleRequest(),
-            riskResult = RiskAnalysis(risk = 1, message = "Read-only command"),
+            riskResult = RiskAnalysis(risk = 1, label = "Safe", message = "Read-only command"),
             riskStatus = RiskStatus.COMPLETED,
             riskError = null,
             timeoutSeconds = 120,
-            onApprove = {}, onDeny = {}, onSendResponse = {}, onDismiss = {},
+            onApprove = {}, onDeny = {}, onApproveWithInput = {}, onDismiss = {},
             autoDenyActive = false, onCancelAutoDeny = {},
         )
     }
@@ -297,16 +315,16 @@ private fun PreviewRisk1() {
 private fun PreviewRisk3() {
     AgentApproverTheme {
         ApprovalCard(
-            request = sampleRequest(toolName = "Edit", toolInput = JsonObject(mapOf(
-                "file_path" to JsonPrimitive("/src/main.kt"),
-                "old_string" to JsonPrimitive("foo"),
-                "new_string" to JsonPrimitive("bar"),
-            ))),
-            riskResult = RiskAnalysis(risk = 3, message = "Modifies source file"),
+            request = sampleRequest(toolName = "Edit", toolInput = mapOf(
+                "file_path" to kotlinx.serialization.json.JsonPrimitive("/src/main.kt"),
+                "old_string" to kotlinx.serialization.json.JsonPrimitive("foo"),
+                "new_string" to kotlinx.serialization.json.JsonPrimitive("bar"),
+            )),
+            riskResult = RiskAnalysis(risk = 3, label = "Moderate", message = "Modifies source file"),
             riskStatus = RiskStatus.COMPLETED,
             riskError = null,
             timeoutSeconds = 120,
-            onApprove = {}, onDeny = {}, onSendResponse = {}, onDismiss = {},
+            onApprove = {}, onDeny = {}, onApproveWithInput = {}, onDismiss = {},
             autoDenyActive = false, onCancelAutoDeny = {},
         )
     }
@@ -317,14 +335,14 @@ private fun PreviewRisk3() {
 private fun PreviewRisk5() {
     AgentApproverTheme {
         ApprovalCard(
-            request = sampleRequest(toolName = "Bash", toolInput = JsonObject(mapOf(
-                "command" to JsonPrimitive("rm -rf /"),
-            ))),
-            riskResult = RiskAnalysis(risk = 5, message = "Destructive system command"),
+            request = sampleRequest(toolName = "Bash", toolInput = mapOf(
+                "command" to kotlinx.serialization.json.JsonPrimitive("rm -rf /"),
+            )),
+            riskResult = RiskAnalysis(risk = 5, label = "Critical", message = "Destructive system command"),
             riskStatus = RiskStatus.COMPLETED,
             riskError = null,
             timeoutSeconds = 120,
-            onApprove = {}, onDeny = {}, onSendResponse = {}, onDismiss = {},
+            onApprove = {}, onDeny = {}, onApproveWithInput = {}, onDismiss = {},
             autoDenyActive = true, onCancelAutoDeny = {},
         )
     }

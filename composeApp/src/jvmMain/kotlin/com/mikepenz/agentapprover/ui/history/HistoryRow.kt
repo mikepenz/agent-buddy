@@ -51,18 +51,18 @@ private fun decisionLabel(decision: Decision): String = when (decision) {
 }
 
 private fun summaryText(request: ApprovalRequest): String = when {
-    request.toolName.equals("Bash", ignoreCase = true) ->
-        request.toolInput["command"]?.jsonPrimitive?.content ?: request.toolName
+    request.hookInput.toolName.equals("Bash", ignoreCase = true) ->
+        request.hookInput.toolInput["command"]?.jsonPrimitive?.content ?: request.hookInput.toolName
 
-    request.toolName.equals("Edit", ignoreCase = true) ||
-        request.toolName.equals("Write", ignoreCase = true) ->
-        request.toolInput["file_path"]?.jsonPrimitive?.content ?: request.toolName
+    request.hookInput.toolName.equals("Edit", ignoreCase = true) ||
+        request.hookInput.toolName.equals("Write", ignoreCase = true) ->
+        request.hookInput.toolInput["file_path"]?.jsonPrimitive?.content ?: request.hookInput.toolName
 
     request.toolType == ToolType.ASK_USER_QUESTION ->
-        request.toolInput["question"]?.jsonPrimitive?.content?.take(80) ?: "Question"
+        request.hookInput.toolInput["question"]?.jsonPrimitive?.content?.take(80) ?: "Question"
 
     request.toolType == ToolType.PLAN -> "Plan"
-    else -> request.toolName
+    else -> request.hookInput.toolName
 }
 
 private fun relativeTimestamp(instant: Instant): String {
@@ -93,7 +93,7 @@ fun HistoryRow(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                ToolBadge(toolName = result.request.toolName, toolType = result.request.toolType)
+                ToolBadge(toolName = result.request.hookInput.toolName, toolType = result.request.toolType)
                 Spacer(Modifier.width(6.dp))
                 Text(
                     text = summaryText(result.request),
@@ -244,16 +244,18 @@ private fun sampleResult(
     request = ApprovalRequest(
         id = id,
         source = Source.CLAUDE_CODE,
-        toolName = toolName,
         toolType = toolType,
-        toolInput = toolInput,
-        sessionId = "session-abc",
-        cwd = "/home/user/project",
+        hookInput = HookInput(
+            sessionId = "session-abc",
+            toolName = toolName,
+            toolInput = toolInput,
+            cwd = "/home/user/project",
+        ),
         timestamp = Clock.System.now(),
         rawRequestJson = """{"tool":"$toolName","input":$toolInput}""",
     ),
     decision = decision,
-    riskAnalysis = risk?.let { RiskAnalysis(risk = it, message = "Sample risk") },
+    riskAnalysis = risk?.let { RiskAnalysis(risk = it, label = "", message = "Sample risk") },
     rawResponseJson = """{"result":"ok"}""",
     decidedAt = Clock.System.now(),
 )

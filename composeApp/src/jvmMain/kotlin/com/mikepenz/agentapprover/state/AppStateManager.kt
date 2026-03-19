@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.datetime.Clock
+import kotlinx.serialization.json.JsonElement
 
 data class AppState(
     val pendingApprovals: List<ApprovalRequest> = emptyList(),
@@ -25,6 +26,7 @@ class AppStateManager(
     val state: StateFlow<AppState> = _state.asStateFlow()
 
     private val pendingDeferreds = mutableMapOf<String, CompletableDeferred<ApprovalResult>>()
+    private val pendingUpdatedInputs = mutableMapOf<String, Map<String, JsonElement>>()
 
     fun initialize() {
         val settings = settingsStorage?.load() ?: AppSettings()
@@ -47,7 +49,11 @@ class AppStateManager(
         feedback: String?,
         riskAnalysis: RiskAnalysis?,
         rawResponseJson: String?,
+        updatedInput: Map<String, JsonElement>? = null,
     ) {
+        if (updatedInput != null) {
+            pendingUpdatedInputs[requestId] = updatedInput
+        }
         _state.update { current ->
             val request = current.pendingApprovals.find { it.id == requestId } ?: return@update current
             val result = ApprovalResult(
@@ -67,6 +73,10 @@ class AppStateManager(
                 riskResults = current.riskResults - requestId,
             )
         }
+    }
+
+    fun getAndClearUpdatedInput(requestId: String): Map<String, JsonElement>? {
+        return pendingUpdatedInputs.remove(requestId)
     }
 
     fun updateHistoryRawResponse(requestId: String, rawResponseJson: String) {
