@@ -29,6 +29,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.aboutlibraries)
     alias(libs.plugins.nucleus)
 }
 
@@ -65,6 +66,8 @@ kotlin {
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.datetime)
             implementation(libs.kermit)
+            implementation(libs.aboutlibraries.core)
+            implementation(libs.aboutlibraries.compose.m3)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -88,6 +91,15 @@ kotlin {
     }
 }
 
+
+aboutLibraries {
+    export {
+        outputPath = file("src/commonMain/composeResources/files/aboutlibraries.json")
+    }
+    library {
+        duplicationMode = com.mikepenz.aboutlibraries.plugin.DuplicateMode.MERGE
+    }
+}
 
 nucleus.application {
     mainClass = "com.mikepenz.agentapprover.MainKt"

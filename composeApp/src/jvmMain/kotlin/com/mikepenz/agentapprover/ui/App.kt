@@ -40,6 +40,7 @@ fun App(
     hookRegistrar: HookRegistrar,
     riskAnalyzer: RiskAnalyzer,
     onPopOut: ((title: String, content: String) -> Unit)? = null,
+    onShowLicenses: () -> Unit = {},
 ) {
     val state by stateManager.state.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -207,6 +208,7 @@ fun App(
                         isHookRegistered = hookRegistrar.isRegistered(state.settings.serverPort)
                     },
                     onClearHistory = { stateManager.clearHistory() },
+                    onShowLicenses = onShowLicenses,
                 )
             }
         }

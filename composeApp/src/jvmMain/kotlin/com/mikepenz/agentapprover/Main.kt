@@ -37,6 +37,7 @@ import com.mikepenz.agentapprover.storage.HistoryStorage
 import com.mikepenz.agentapprover.storage.SettingsStorage
 import com.mikepenz.agentapprover.ui.App
 import com.mikepenz.agentapprover.ui.detail.ContentDetailWindow
+import com.mikepenz.agentapprover.ui.detail.LicensesWindow
 import com.mikepenz.agentapprover.platform.AppIcon
 import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
 import com.mikepenz.agentapprover.ui.theme.configureLogging
@@ -77,6 +78,7 @@ fun main() {
         var isVisible by remember { mutableStateOf(true) }
         var showPortError by remember { mutableStateOf(false) }
         var popOutState by remember { mutableStateOf<Pair<String, String>?>(null) }
+        var showLicenses by remember { mutableStateOf(false) }
 
         val riskAnalyzer = remember {
             RiskAnalyzer(
@@ -235,10 +237,16 @@ fun main() {
                         App(
                             stateManager, hookRegistrar, riskAnalyzer,
                             onPopOut = { title, content -> popOutState = title to content },
+                            onShowLicenses = { showLicenses = true },
                         )
                     }
                 }
             }
+        }
+
+        // Licenses window
+        if (showLicenses) {
+            LicensesWindow(onClose = { showLicenses = false })
         }
 
         // Pop-out detail window

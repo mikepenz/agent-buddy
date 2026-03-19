@@ -31,6 +31,7 @@ fun SettingsTab(
     onRegisterHook: () -> Unit,
     onUnregisterHook: () -> Unit,
     onClearHistory: () -> Unit,
+    onShowLicenses: () -> Unit = {},
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
 
@@ -260,6 +261,15 @@ fun SettingsTab(
         )
 
         // -- About --
+        SectionHeader("About")
+
+        OutlinedButton(
+            onClick = onShowLicenses,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Open Source Libraries")
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "Agent Approver v${com.mikepenz.agentapprover.VERSION}",

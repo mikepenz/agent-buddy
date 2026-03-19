@@ -3,5 +3,6 @@ plugins {
     alias(libs.plugins.composeCompiler) apply false
     alias(libs.plugins.kotlinMultiplatform) apply false
     alias(libs.plugins.kotlinSerialization) apply false
+    alias(libs.plugins.aboutlibraries) apply false
     alias(libs.plugins.nucleus) apply false
 }
