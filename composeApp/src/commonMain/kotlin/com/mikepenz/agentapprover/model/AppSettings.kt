@@ -11,4 +11,8 @@ data class AppSettings(
     val riskAnalysisEnabled: Boolean = true,
     val autoApproveRisk1: Boolean = false,
     val autoDenyRisk5: Boolean = false,
+    val windowX: Int? = null,
+    val windowY: Int? = null,
+    val windowWidth: Int? = null,
+    val windowHeight: Int? = null,
 )

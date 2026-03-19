@@ -11,12 +11,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.window.Tray
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.WindowState
 import androidx.compose.ui.window.application
-import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
 import io.github.kdroidfilter.nucleus.window.material.MaterialDecoratedWindow
 import io.github.kdroidfilter.nucleus.window.material.MaterialTitleBar
 import com.mikepenz.agentapprover.hook.HookRegistrar
@@ -62,6 +71,10 @@ private fun createTrayIcon(): BufferedImage {
     return image
 }
 
+private const val DEFAULT_WINDOW_WIDTH = 420
+private const val DEFAULT_WINDOW_HEIGHT = 480
+
+@OptIn(FlowPreview::class)
 fun main() {
     configureLogging()
 
@@ -141,7 +154,41 @@ fun main() {
         )
 
         val settings = stateManager.state.value.settings
-        val windowState = rememberWindowState()
+
+        val windowState = remember {
+            val position = if (settings.windowX != null && settings.windowY != null) {
+                WindowPosition.Absolute(settings.windowX.dp, settings.windowY.dp)
+            } else {
+                WindowPosition.PlatformDefault
+            }
+            val size = DpSize(
+                width = (settings.windowWidth ?: DEFAULT_WINDOW_WIDTH).dp,
+                height = (settings.windowHeight ?: DEFAULT_WINDOW_HEIGHT).dp,
+            )
+            WindowState(position = position, size = size)
+        }
+
+        // Debounce-save window position and size changes
+        LaunchedEffect(windowState) {
+            snapshotFlow { windowState.position to windowState.size }
+                .distinctUntilChanged()
+                .debounce(500L)
+                .collect { (pos, size) ->
+                    if (pos is WindowPosition.Absolute) {
+                        withContext(Dispatchers.IO) {
+                            val current = settingsStorage.load()
+                            settingsStorage.save(
+                                current.copy(
+                                    windowX = pos.x.value.toInt(),
+                                    windowY = pos.y.value.toInt(),
+                                    windowWidth = size.width.value.toInt(),
+                                    windowHeight = size.height.value.toInt(),
+                                )
+                            )
+                        }
+                    }
+                }
+        }
 
         if (isVisible) {
             AgentApproverTheme {
