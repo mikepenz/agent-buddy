@@ -1,0 +1,7 @@
+{
+  "format-version": 1,
+  "assets": [
+    { "role": "front", "filename": "Assets/FrontImage.png" },
+    { "role": "back", "filename": "Assets/BackImage.png" }
+  ]
+}
