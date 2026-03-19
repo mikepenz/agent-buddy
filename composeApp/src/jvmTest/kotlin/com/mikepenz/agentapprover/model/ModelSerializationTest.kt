@@ -90,6 +90,30 @@ class ModelSerializationTest {
     }
 
     @Test
+    fun hookInputWithPermissionSuggestions() {
+        val input = HookInput(
+            sessionId = "session-1",
+            toolName = "Bash",
+            toolInput = mapOf("command" to JsonPrimitive("ls -la")),
+            permissionSuggestions = listOf(
+                PermissionSuggestion(
+                    type = "addRules",
+                    rules = listOf(RuleEntry(toolName = "Bash", ruleContent = "ls *")),
+                    behavior = "allow",
+                    destination = "projectSettings",
+                ),
+            ),
+            cwd = "/tmp",
+        )
+        val encoded = json.encodeToString(HookInput.serializer(), input)
+        val decoded = json.decodeFromString(HookInput.serializer(), encoded)
+        assertEquals(input, decoded)
+        assertEquals(1, decoded.permissionSuggestions.size)
+        assertEquals("Bash", decoded.permissionSuggestions[0].rules?.first()?.toolName)
+        assertEquals("ls *", decoded.permissionSuggestions[0].rules?.first()?.ruleContent)
+    }
+
+    @Test
     fun appSettingsRoundTrip() {
         val settings = AppSettings()
         val encoded = json.encodeToString(AppSettings.serializer(), settings)

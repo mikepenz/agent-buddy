@@ -11,7 +11,7 @@ data class HookInput(
     @SerialName("session_id") val sessionId: String,
     @SerialName("tool_name") val toolName: String,
     @SerialName("tool_input") val toolInput: Map<String, JsonElement> = emptyMap(),
-    @SerialName("permission_suggestions") val permissionSuggestions: List<JsonElement> = emptyList(),
+    @SerialName("permission_suggestions") val permissionSuggestions: List<PermissionSuggestion> = emptyList(),
     val cwd: String = "",
     @SerialName("hook_event_name") val hookEventName: String = "",
     @SerialName("permission_mode") val permissionMode: String = "",

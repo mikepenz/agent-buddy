@@ -59,7 +59,7 @@ fun Route.approvalRoute(
             }
 
             val responseJson = when (result.decision) {
-                Decision.APPROVED, Decision.AUTO_APPROVED -> {
+                Decision.APPROVED, Decision.AUTO_APPROVED, Decision.ALWAYS_ALLOWED -> {
                     val updatedInput = stateManager.getAndClearUpdatedInput(request.id)
                     buildAllowResponse(updatedInput).toString()
                 }
