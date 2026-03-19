@@ -2,12 +2,11 @@
 build/
 .idea/
 *.iml
+.DS_Store
 local.properties
 .superpowers/
+.kotlin/
 template/
 
-
-
 .claude/*.local.json
-.claude/*.local.md.claude/settings.local.json
-.kotlin/
+.claude/*.local.md

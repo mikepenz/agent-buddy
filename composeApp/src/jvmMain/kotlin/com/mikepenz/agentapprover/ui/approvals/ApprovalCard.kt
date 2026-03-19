@@ -177,6 +177,7 @@ fun ToolBadge(toolName: String, toolType: ToolType) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun RiskBadge(riskResult: RiskAnalysis?, riskStatus: RiskStatus, riskError: String?) {
     when {
         riskStatus == RiskStatus.ANALYZING -> {
@@ -206,16 +207,22 @@ fun RiskBadge(riskResult: RiskAnalysis?, riskStatus: RiskStatus, riskError: Stri
         riskResult != null -> {
             val color = riskColor(riskResult.risk)
             val label = riskResult.label.ifBlank { riskLabel(riskResult.risk) }
-            Surface(
-                shape = RoundedCornerShape(4.dp),
-                color = color.copy(alpha = 0.2f),
+            TooltipBox(
+                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+                tooltip = {
+                    PlainTooltip {
+                        Text(riskResult.message.ifBlank { label })
+                    }
+                },
+                state = rememberTooltipState(),
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = color.copy(alpha = 0.2f),
                 ) {
                     Text(
                         text = "Risk ${riskResult.risk} - $label",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                         color = color,
                         fontSize = 10.sp,
                     )
