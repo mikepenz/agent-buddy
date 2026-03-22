@@ -1,0 +1,221 @@
+package com.mikepenz.agentapprover.ui.approvals
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.mikepenz.markdown.m3.Markdown
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
+
+@Composable
+fun FileOperationContent(toolName: String, toolInput: Map<String, JsonElement>) {
+    val filePath = toolInput["file_path"]?.jsonPrimitive?.contentOrNull ?: ""
+    val extension = filePath.substringAfterLast('.', "")
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // File path row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = filePath,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        when (toolName.lowercase()) {
+            "read" -> ReadDetail(toolInput)
+            "edit" -> EditDetail(toolInput, extension)
+            "write" -> WriteDetail(toolInput, extension)
+        }
+    }
+}
+
+@Composable
+private fun ReadDetail(toolInput: Map<String, JsonElement>) {
+    val offset = toolInput["offset"]?.jsonPrimitive?.intOrNull
+    val limit = toolInput["limit"]?.jsonPrimitive?.intOrNull
+    val rangeText = when {
+        offset != null && limit != null -> "Lines ${offset + 1}\u2013${offset + limit}"
+        offset != null -> "From line ${offset + 1}"
+        limit != null -> "First $limit lines"
+        else -> "Entire file"
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Text(
+            text = rangeText,
+            modifier = Modifier.padding(8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun EditDetail(toolInput: Map<String, JsonElement>, extension: String) {
+    val oldStr = toolInput["old_string"]?.jsonPrimitive?.contentOrNull ?: ""
+    val newStr = toolInput["new_string"]?.jsonPrimitive?.contentOrNull ?: ""
+    val replaceAll = toolInput["replace_all"]?.jsonPrimitive?.booleanOrNull ?: false
+
+    if (replaceAll) {
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            color = Color(0xFFE63845).copy(alpha = 0.2f),
+            border = BorderStroke(1.dp, Color(0xFFE63845).copy(alpha = 0.5f)),
+        ) {
+            Text(
+                text = "Replace All",
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                color = Color(0xFFE63845),
+                fontSize = 10.sp,
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+    }
+
+    val diffContent = buildString {
+        appendLine("```diff")
+        oldStr.lines().forEach { appendLine("- $it") }
+        newStr.lines().forEach { appendLine("+ $it") }
+        appendLine("```")
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF1E1E1E),
+        shape = MaterialTheme.shapes.small,
+    ) {
+        Box(modifier = Modifier.padding(8.dp)) {
+            Markdown(content = diffContent)
+        }
+    }
+}
+
+@Composable
+private fun WriteDetail(toolInput: Map<String, JsonElement>, extension: String) {
+    val content = toolInput["content"]?.jsonPrimitive?.contentOrNull ?: ""
+    var expanded by remember { mutableStateOf(false) }
+    val lineCount = content.count { it == '\n' } + 1
+    val canExpand = lineCount > 3
+    val lang = languageFromExtension(extension)
+
+    val codeBlock = "```$lang\n$content\n```"
+
+    if (expanded && canExpand) {
+        Surface(
+            onClick = { expanded = false },
+            modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+            color = Color(0xFF1E1E1E),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Box(modifier = Modifier.padding(8.dp)) {
+                Markdown(content = codeBlock)
+            }
+        }
+    } else {
+        Surface(
+            onClick = { expanded = true },
+            enabled = canExpand,
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF1E1E1E),
+            shape = MaterialTheme.shapes.small,
+        ) {
+            Box(modifier = Modifier.padding(8.dp)) {
+                Text(
+                    text = content,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    color = Color(0xFFCCCCCC),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+private fun languageFromExtension(ext: String): String = when (ext.lowercase()) {
+    "kt", "kts" -> "kotlin"
+    "java" -> "java"
+    "py" -> "python"
+    "js" -> "javascript"
+    "ts" -> "typescript"
+    "tsx" -> "typescript"
+    "jsx" -> "javascript"
+    "json" -> "json"
+    "xml" -> "xml"
+    "yaml", "yml" -> "yaml"
+    "toml" -> "toml"
+    "md" -> "markdown"
+    "sh", "bash", "zsh" -> "bash"
+    "swift" -> "swift"
+    "rs" -> "rust"
+    "go" -> "go"
+    "rb" -> "ruby"
+    "css" -> "css"
+    "html" -> "html"
+    "sql" -> "sql"
+    "gradle" -> "groovy"
+    else -> ""
+}
+
+fun fileOperationPopOutContent(toolName: String, toolInput: Map<String, JsonElement>): String {
+    val filePath = toolInput["file_path"]?.jsonPrimitive?.contentOrNull ?: ""
+    val extension = filePath.substringAfterLast('.', "")
+    val lang = languageFromExtension(extension)
+    return when (toolName.lowercase()) {
+        "read" -> {
+            val offset = toolInput["offset"]?.jsonPrimitive?.intOrNull
+            val limit = toolInput["limit"]?.jsonPrimitive?.intOrNull
+            val range = when {
+                offset != null && limit != null -> "Lines ${offset + 1}\u2013${offset + limit}"
+                offset != null -> "From line ${offset + 1}"
+                limit != null -> "First $limit lines"
+                else -> "Entire file"
+            }
+            "**File:** `$filePath`\n\n$range"
+        }
+        "edit" -> {
+            val oldStr = toolInput["old_string"]?.jsonPrimitive?.contentOrNull ?: ""
+            val newStr = toolInput["new_string"]?.jsonPrimitive?.contentOrNull ?: ""
+            val replaceAll = toolInput["replace_all"]?.jsonPrimitive?.booleanOrNull ?: false
+            buildString {
+                appendLine("**File:** `$filePath`")
+                if (replaceAll) appendLine("**\u26A0 Replace All**")
+                appendLine()
+                appendLine("```diff")
+                oldStr.lines().forEach { appendLine("- $it") }
+                newStr.lines().forEach { appendLine("+ $it") }
+                appendLine("```")
+            }
+        }
+        "write" -> {
+            val content = toolInput["content"]?.jsonPrimitive?.contentOrNull ?: ""
+            "**File:** `$filePath`\n\n```$lang\n$content\n```"
+        }
+        else -> "`$filePath`"
+    }
+}
