@@ -14,7 +14,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
+import androidx.compose.desktop.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.width
+import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -180,6 +184,101 @@ private fun languageFromExtension(ext: String): String = when (ext.lowercase()) 
     "sql" -> "sql"
     "gradle" -> "groovy"
     else -> ""
+}
+
+// -- Previews --
+
+@Preview
+@Composable
+private fun PreviewReadWithRange() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                FileOperationContent(
+                    toolName = "Read",
+                    toolInput = mapOf(
+                        "file_path" to JsonPrimitive("/tmp/paparazzi/paparazzi/src/main/java/app/cash/paparazzi/PaparazziSdk.kt"),
+                        "offset" to JsonPrimitive(199),
+                        "limit" to JsonPrimitive(120),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewReadEntireFile() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                FileOperationContent(
+                    toolName = "Read",
+                    toolInput = mapOf(
+                        "file_path" to JsonPrimitive("/tmp/paparazzi/paparazzi/src/main/java/app/cash/paparazzi/internal/Renderer.kt"),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewEdit() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                FileOperationContent(
+                    toolName = "Edit",
+                    toolInput = mapOf(
+                        "file_path" to JsonPrimitive("/Users/mike/project/src/main/kotlin/App.kt"),
+                        "old_string" to JsonPrimitive("fun greet() = \"Hello\""),
+                        "new_string" to JsonPrimitive("fun greet(name: String) = \"Hello, \$name\""),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewEditReplaceAll() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                FileOperationContent(
+                    toolName = "Edit",
+                    toolInput = mapOf(
+                        "file_path" to JsonPrimitive("/Users/mike/project/build.gradle.kts"),
+                        "old_string" to JsonPrimitive("implementation"),
+                        "new_string" to JsonPrimitive("api"),
+                        "replace_all" to JsonPrimitive(true),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewWrite() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                FileOperationContent(
+                    toolName = "Write",
+                    toolInput = mapOf(
+                        "file_path" to JsonPrimitive("/Users/mike/project/specs/quickstart.md"),
+                        "content" to JsonPrimitive("# Quickstart: Compose Buddy\n\n## Prerequisites\n\n- Android project using Jetpack Compose\n- Gradle 8.x+ with Kotlin DSL\n- AGP 8.0+\n\n## Installation\n\nAdd the plugin to your build.gradle.kts"),
+                    ),
+                )
+            }
+        }
+    }
 }
 
 fun fileOperationPopOutContent(toolName: String, toolInput: Map<String, JsonElement>): String {

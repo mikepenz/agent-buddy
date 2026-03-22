@@ -14,7 +14,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mikepenz.agentapprover.ui.theme.ToolSearchColor
+import androidx.compose.desktop.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.width
+import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -93,6 +97,66 @@ fun SmallBadge(text: String, color: Color) {
             fontSize = 9.sp,
             style = MaterialTheme.typography.labelSmall,
         )
+    }
+}
+
+// -- Previews --
+
+@Preview
+@Composable
+private fun PreviewGrepWithBadges() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                SearchContent(
+                    toolName = "Grep",
+                    toolInput = mapOf(
+                        "pattern" to JsonPrimitive("NATIVE_LIB_VERSION\\s*=|const val NATIVE|VERSION\\s*=\\s*\""),
+                        "path" to JsonPrimitive("/tmp/paparazzi/paparazzi-gradle-plugin"),
+                        "glob" to JsonPrimitive("*.kt"),
+                        "output_mode" to JsonPrimitive("content"),
+                        "context" to JsonPrimitive(2),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewGrepSimple() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                SearchContent(
+                    toolName = "Grep",
+                    toolInput = mapOf(
+                        "pattern" to JsonPrimitive("layoutlib"),
+                        "path" to JsonPrimitive("/tmp/paparazzi/gradle/libs.versions.toml"),
+                        "output_mode" to JsonPrimitive("content"),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewGlob() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                SearchContent(
+                    toolName = "Glob",
+                    toolInput = mapOf(
+                        "pattern" to JsonPrimitive("**/*.kt"),
+                        "path" to JsonPrimitive("/tmp/paparazzi/paparazzi-gradle-plugin/src"),
+                    ),
+                )
+            }
+        }
     }
 }
 

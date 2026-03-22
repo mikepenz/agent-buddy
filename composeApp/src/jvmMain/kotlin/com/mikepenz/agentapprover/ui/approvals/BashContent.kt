@@ -11,7 +11,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mikepenz.markdown.m3.Markdown
+import androidx.compose.desktop.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.width
+import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -46,6 +50,60 @@ fun BashContent(toolInput: Map<String, JsonElement>, cwd: String = "") {
         ) {
             Box(modifier = Modifier.padding(8.dp)) {
                 Markdown(content = "```bash\n$command\n```")
+            }
+        }
+    }
+}
+
+// -- Previews --
+
+@Preview
+@Composable
+private fun PreviewBashSimple() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                BashContent(
+                    toolInput = mapOf(
+                        "command" to JsonPrimitive("git status && git diff HEAD"),
+                        "description" to JsonPrimitive("Show working tree status"),
+                    ),
+                    cwd = "/Users/mike/project",
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewBashMultiline() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                BashContent(
+                    toolInput = mapOf(
+                        "command" to JsonPrimitive(
+                            "javap -classpath ./build/tmp/kotlin-classes/debug com.example.PreviewsKt 2>/dev/null | grep \"Preview\" | head -20"
+                        ),
+                        "description" to JsonPrimitive("Check method signatures for Preview"),
+                    ),
+                    cwd = "/Users/mike/Development/compose-buddy",
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewBashNoDescription() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                BashContent(
+                    toolInput = mapOf("command" to JsonPrimitive("ls -la")),
+                )
             }
         }
     }

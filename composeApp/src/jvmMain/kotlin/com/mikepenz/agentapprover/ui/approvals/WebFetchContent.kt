@@ -10,7 +10,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mikepenz.agentapprover.ui.theme.ToolWebColor
+import androidx.compose.desktop.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.width
+import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -49,6 +53,58 @@ fun WebFetchContent(toolInput: Map<String, JsonElement>) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+// -- Previews --
+
+@Preview
+@Composable
+private fun PreviewWebFetchWithPrompt() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                WebFetchContent(
+                    toolInput = mapOf(
+                        "url" to JsonPrimitive("https://mvnrepository.com/artifact/com.android.tools.layoutlib/layoutlib-runtime"),
+                        "prompt" to JsonPrimitive("What is the latest version of layoutlib-runtime? List the recent versions."),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewWebFetchGitHub() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                WebFetchContent(
+                    toolInput = mapOf(
+                        "url" to JsonPrimitive("https://github.com/cashapp/paparazzi/blob/master/paparazzi/src/main/java/app/cash/paparazzi/Paparazzi.kt"),
+                        "prompt" to JsonPrimitive("Extract the full class structure, key methods, how layoutlib is invoked, how rendering is set up, and how snapshots are captured."),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Preview
+@Composable
+private fun PreviewWebFetchNoPrompt() {
+    AgentApproverTheme {
+        Surface(color = MaterialTheme.colorScheme.background) {
+            Box(modifier = Modifier.width(350.dp).padding(12.dp)) {
+                WebFetchContent(
+                    toolInput = mapOf(
+                        "url" to JsonPrimitive("https://www.google.com"),
+                    ),
                 )
             }
         }
