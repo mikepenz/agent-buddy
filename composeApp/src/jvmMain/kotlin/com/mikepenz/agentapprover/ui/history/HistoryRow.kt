@@ -2,6 +2,7 @@ package com.mikepenz.agentapprover.ui.history
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -133,16 +134,20 @@ fun HistoryRow(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = if (isExpanded) 2.dp else 0.dp,
     ) {
-        Column(
-            modifier = Modifier
-                .combinedClickable(
-                    onClick = onToggleExpand,
-                    onLongClick = if (onReplay != null) {
-                        { onReplay(result) }
-                    } else null,
-                )
-                .padding(8.dp),
-        ) {
+        Column {
+            // Clickable header area — full width, rounded top corners
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .combinedClickable(
+                        onClick = onToggleExpand,
+                        onLongClick = if (onReplay != null) {
+                            { onReplay(result) }
+                        } else null,
+                    )
+                    .padding(8.dp),
+            ) {
             // Top line: tool badge + summary
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -219,6 +224,7 @@ fun HistoryRow(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                 )
             }
+            } // end clickable header
 
             // Expanded detail
             AnimatedVisibility(visible = isExpanded) {
@@ -241,7 +247,7 @@ fun HistoryRow(
 
                 Box(
                     modifier = Modifier
-                        .padding(top = 8.dp)
+                        .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
                         .fillMaxWidth()
                         .background(Color(0xFF0D0D0D), RoundedCornerShape(6.dp))
                         .padding(8.dp)
