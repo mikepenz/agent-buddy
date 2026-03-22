@@ -152,6 +152,12 @@ fun SettingsTab(
             },
         )
 
+        SettingsSwitch(
+            label = "Away mode (disable all timeouts)",
+            checked = settings.awayMode,
+            onCheckedChange = { onSettingsChange(settings.copy(awayMode = it)) },
+        )
+
         // -- Risk Analysis Section --
         SectionHeader("Risk Analysis")
 

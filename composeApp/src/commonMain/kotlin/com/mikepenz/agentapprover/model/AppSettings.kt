@@ -17,6 +17,7 @@ data class AppSettings(
     val riskAnalysisCustomPrompt: String = "",
     val autoApproveRisk1: Boolean = false,
     val autoDenyRisk5: Boolean = false,
+    val awayMode: Boolean = false,
     val windowX: Int? = null,
     val windowY: Int? = null,
     val windowWidth: Int? = null,

@@ -39,8 +39,9 @@ fun Route.approvalRoute(
         onNewApproval()
 
         val settings = stateManager.state.value.settings
-        val timeoutMs = when (request.toolType) {
-            ToolType.PLAN, ToolType.ASK_USER_QUESTION -> Long.MAX_VALUE
+        val timeoutMs = when {
+            settings.awayMode -> Long.MAX_VALUE
+            request.toolType == ToolType.PLAN || request.toolType == ToolType.ASK_USER_QUESTION -> Long.MAX_VALUE
             else -> settings.defaultTimeoutSeconds * 1000L
         }
 

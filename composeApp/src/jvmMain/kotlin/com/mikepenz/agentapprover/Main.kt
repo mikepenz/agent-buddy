@@ -172,6 +172,7 @@ fun main() {
 
         // Use AWT SystemTray directly for proper MultiResolutionImage HiDPI support
         val showHideItem = remember { java.awt.MenuItem(if (isVisible) "Hide" else "Show") }
+        val awayModeItem = remember { java.awt.CheckboxMenuItem("Away Mode", stateManager.state.value.settings.awayMode) }
         DisposableEffect(Unit) {
             val systemTray = if (java.awt.SystemTray.isSupported()) java.awt.SystemTray.getSystemTray() else null
             val trayIcon = if (systemTray != null) {
@@ -183,6 +184,13 @@ fun main() {
                 val popup = java.awt.PopupMenu()
                 showHideItem.addActionListener { isVisible = !isVisible }
                 popup.add(showHideItem)
+
+                awayModeItem.addItemListener {
+                    val current = stateManager.state.value.settings
+                    stateManager.updateSettings(current.copy(awayMode = awayModeItem.state))
+                }
+                popup.add(awayModeItem)
+
                 popup.add(java.awt.MenuItem("Quit").apply { addActionListener { exitApp() } })
                 icon.popupMenu = popup
 
@@ -196,12 +204,19 @@ fun main() {
         LaunchedEffect(isVisible) {
             showHideItem.label = if (isVisible) "Hide" else "Show"
         }
-        LaunchedEffect(pendingCount) {
+        LaunchedEffect(state.settings.awayMode) {
+            awayModeItem.state = state.settings.awayMode
+        }
+        LaunchedEffect(pendingCount, state.settings.awayMode) {
             if (java.awt.SystemTray.isSupported()) {
                 val systemTray = java.awt.SystemTray.getSystemTray()
                 systemTray.trayIcons.firstOrNull()?.let { icon ->
                     icon.image = AppIcon.createTrayIconMultiRes(pendingCount)
-                    icon.toolTip = if (pendingCount > 0) "Agent Approver ($pendingCount pending)" else "Agent Approver"
+                    icon.toolTip = buildString {
+                        append("Agent Approver")
+                        if (pendingCount > 0) append(" ($pendingCount pending)")
+                        if (state.settings.awayMode) append(" [Away]")
+                    }
                 }
             }
         }

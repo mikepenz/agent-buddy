@@ -38,6 +38,7 @@ fun ApprovalCard(
     onDismiss: () -> Unit,
     autoDenyActive: Boolean,
     onCancelAutoDeny: () -> Unit,
+    awayMode: Boolean = false,
     onPopOut: ((title: String, content: String) -> Unit)? = null,
 ) {
     val borderColor by animateColorAsState(
@@ -88,8 +89,8 @@ fun ApprovalCard(
 
         Box {
             Column {
-                // Full-width progress bar at top of card (only for DEFAULT)
-                if (request.toolType == ToolType.DEFAULT) {
+                // Full-width progress bar at top of card (only for DEFAULT, hidden in away mode)
+                if (request.toolType == ToolType.DEFAULT && !awayMode) {
                     TimerProgressBar(
                         timeoutSeconds = timeoutSeconds,
                         remainingSeconds = remainingSeconds,
@@ -111,7 +112,7 @@ fun ApprovalCard(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             RiskBadge(riskResult = riskResult, riskStatus = riskStatus, riskError = riskError)
-                            if (request.toolType == ToolType.DEFAULT) {
+                            if (request.toolType == ToolType.DEFAULT && !awayMode) {
                                 val fraction = remainingSeconds.toFloat() / timeoutSeconds
                                 val color = if (fraction < 0.2f) Color(0xFFF44336) else MaterialTheme.colorScheme.onSurfaceVariant
                                 Text(

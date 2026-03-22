@@ -4,7 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -76,7 +80,7 @@ fun App(
                                     riskAnalysis = analysis,
                                     rawResponseJson = null,
                                 )
-                            } else if (!skipAutoActions && analysis.risk == 5 && state.settings.autoDenyRisk5) {
+                            } else if (!skipAutoActions && !state.settings.awayMode && analysis.risk == 5 && state.settings.autoDenyRisk5) {
                                 autoDenyRequests.add(approval.id)
                                 delay(15_000)
                                 if (approval.id in autoDenyRequests) {
@@ -108,6 +112,17 @@ fun App(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        if (state.settings.awayMode) {
+            Surface(color = MaterialTheme.colorScheme.tertiaryContainer, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Away Mode — Timeouts disabled",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                )
+            }
+        }
+
         TabRow(selectedTabIndex = selectedTab) {
             Tab(
                 selected = selectedTab == 0,

@@ -65,6 +65,7 @@ fun ApprovalsTab(
                     onDismiss = { onDismiss(request.id) },
                     autoDenyActive = request.id in autoDenyRequests,
                     onCancelAutoDeny = { onCancelAutoDeny(request.id) },
+                    awayMode = settings.awayMode,
                     onPopOut = onPopOut,
                 )
             }
