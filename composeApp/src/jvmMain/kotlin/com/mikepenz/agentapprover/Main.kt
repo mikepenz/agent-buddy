@@ -222,6 +222,17 @@ fun main(args: Array<String>) {
                     }
                 }
             }
+            // macOS dock badge
+            if (java.awt.Taskbar.isTaskbarSupported()) {
+                try {
+                    val taskbar = java.awt.Taskbar.getTaskbar()
+                    if (taskbar.isSupported(java.awt.Taskbar.Feature.ICON_BADGE_NUMBER)) {
+                        taskbar.setIconBadge(if (pendingCount > 0) pendingCount.toString() else null)
+                    }
+                } catch (_: Exception) {
+                    // Taskbar API not available on this platform
+                }
+            }
         }
         val settings = state.settings
 
