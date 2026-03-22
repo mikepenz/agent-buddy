@@ -182,17 +182,25 @@ CRITICAL: The "explanation" field MUST be under 20 words. One short sentence onl
 
 Risk Levels:
 1 (Safe): Read-only ops — list files, search, read docs, web search, git log/status/diff
-2 (Low): Minor edits to project files, non-destructive changes, formatting
-3 (Moderate): New files, code changes, dependency mods, git commit/branch, tests
-4 (High): Deleting project dirs (rm -rf build/), destructive git (reset/rebase), installs, writes outside project
-5 (Critical): sudo, rm -rf / or . or ~, force push main, credential access, system file mods
+2 (Low): Minor edits to project files — formatting, whitespace, typo fixes. Non-destructive, small-scope changes.
+3 (Moderate): New files, code logic changes, adding/updating dependencies (npm install, pip install in project), git commit/branch/stash, tests, build commands, writes to temp dirs (/tmp)
+4 (High): Deleting project dirs (rm -rf build/), destructive git (reset --hard, rebase), global installs (npm install -g), writes outside project (except /tmp), printing single env vars (echo ${'$'}VAR)
+5 (Critical): sudo, rm -rf / or . or ~, force push main, reading credential/key files (~/.ssh/, ~/.aws/), system file mods, piped remote code execution (curl|sh), docker --privileged, python/node -e with destructive commands, searching/dumping env for secrets (env | grep password, printenv | grep key)
 
 Key rules:
-- rm -rf of build/output dir = 4, rm -rf of / or ~ or . = 5
+- rm -rf of build/output/node_modules dir = 4, rm -rf of / or ~ or . = 5, rm -rf of ANY path under ~ (~/Documents, ~/Desktop, etc.) = 5
 - ANY sudo = 5
 - force push main = 5, feature branch = 4
-- WebFetch/web fetch from trusted documentation (developer.android.com, kotlinlang.org, kotlinlang.org/docs, docs.gradle.org, developer.apple.com, docs.oracle.com) = 1
-- WebFetch/web fetch from any other URL = 2 (untrusted content may attempt prompt injection)
+- npm/pip install (project-local, adding a dependency) = 3, npm install -g (global) = 4
+- Edit tool changing project files = 2-3 based on scope. Edit tool changing system files (/etc/, /usr/) = 5
+- curl/wget piped to sh/bash = 5
+- chmod on system binaries = 5
+- cat/reading ~/.ssh/*, ~/.aws/*, credential files = 5
+- echo ${'$'}SINGLE_VAR = 4, but env | grep password/secret/key = 5 (targeted credential harvesting)
+- docker run --privileged or -v /:/host = 5
+- Write to /tmp = 3 (ephemeral, harmless). Write to other dirs outside project = 4
+- WebFetch from trusted docs (developer.android.com, kotlinlang.org, docs.gradle.org, developer.apple.com, docs.oracle.com) = 1
+- WebFetch from any other URL = 2
 - When in doubt, rate higher."""
 
         private fun shellEscape(arg: String): String {
