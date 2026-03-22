@@ -60,7 +60,7 @@ compose_icon() {
 
     local logo_size=$((size * 80 / 100))
     local logo_offset=$(( (size - logo_size) / 2 ))
-    local badge_size=$((size * 30 / 100))
+    local badge_size=$((size * 45 / 100))
     local badge_offset=$((size - badge_size - size * 2 / 100))
 
     # Render Claude logo
@@ -90,7 +90,7 @@ compose_foreground() {
 
     local logo_size=$((size * 80 / 100))
     local logo_offset=$(( (size - logo_size) / 2 ))
-    local badge_size=$((size * 30 / 100))
+    local badge_size=$((size * 45 / 100))
     local badge_offset=$((size - badge_size - size * 2 / 100))
 
     # White Claude logo for foreground layer
