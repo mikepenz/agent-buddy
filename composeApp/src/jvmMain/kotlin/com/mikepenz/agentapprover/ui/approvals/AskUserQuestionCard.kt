@@ -1,16 +1,40 @@
 package com.mikepenz.agentapprover.ui.approvals
 
-import androidx.compose.desktop.ui.tooling.preview.Preview
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import co.touchlab.kermit.Logger
-import com.mikepenz.agentapprover.model.*
+import com.mikepenz.agentapprover.model.ApprovalRequest
+import com.mikepenz.agentapprover.model.HookInput
+import com.mikepenz.agentapprover.model.Question
+import com.mikepenz.agentapprover.model.QuestionOption
+import com.mikepenz.agentapprover.model.Source
+import com.mikepenz.agentapprover.model.ToolType
+import com.mikepenz.agentapprover.model.UserQuestionData
 import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonArray
@@ -229,23 +253,33 @@ private fun PreviewAskUserQuestionWithOptions() {
                             sessionId = "sess-abc123",
                             toolName = "AskUserQuestion",
                             toolInput = mapOf(
-                                "questions" to kotlinx.serialization.json.JsonArray(listOf(
-                                    JsonObject(mapOf(
-                                        "question" to JsonPrimitive("Which database?"),
-                                        "header" to JsonPrimitive("Database Choice"),
-                                        "options" to kotlinx.serialization.json.JsonArray(listOf(
-                                            JsonObject(mapOf(
-                                                "label" to JsonPrimitive("PostgreSQL"),
-                                                "description" to JsonPrimitive("Robust relational DB"),
-                                            )),
-                                            JsonObject(mapOf(
-                                                "label" to JsonPrimitive("SQLite"),
-                                                "description" to JsonPrimitive("Lightweight embedded DB"),
-                                            )),
-                                        )),
-                                        "multiSelect" to JsonPrimitive(false),
-                                    )),
-                                )),
+                                "questions" to kotlinx.serialization.json.JsonArray(
+                                    listOf(
+                                        JsonObject(
+                                            mapOf(
+                                                "question" to JsonPrimitive("Which database?"),
+                                                "header" to JsonPrimitive("Database Choice"),
+                                                "options" to kotlinx.serialization.json.JsonArray(
+                                                    listOf(
+                                                        JsonObject(
+                                                            mapOf(
+                                                                "label" to JsonPrimitive("PostgreSQL"),
+                                                                "description" to JsonPrimitive("Robust relational DB"),
+                                                            )
+                                                        ),
+                                                        JsonObject(
+                                                            mapOf(
+                                                                "label" to JsonPrimitive("SQLite"),
+                                                                "description" to JsonPrimitive("Lightweight embedded DB"),
+                                                            )
+                                                        ),
+                                                    )
+                                                ),
+                                                "multiSelect" to JsonPrimitive(false),
+                                            )
+                                        ),
+                                    )
+                                ),
                             ),
                             cwd = "/home/user/project",
                         ),

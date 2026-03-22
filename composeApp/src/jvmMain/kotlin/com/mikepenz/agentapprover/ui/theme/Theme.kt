@@ -5,8 +5,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import co.touchlab.kermit.Logger
 import co.touchlab.kermit.LogWriter
+import co.touchlab.kermit.Logger
 import co.touchlab.kermit.Severity
 import com.mikepenz.agentapprover.model.ThemeMode
 import com.mikepenz.agentapprover.model.ToolType
@@ -59,10 +59,12 @@ fun riskLabel(risk: Int): String = when (risk) {
 fun toolColor(toolName: String, toolType: ToolType): Color = when {
     toolName.equals("Bash", ignoreCase = true) -> ToolBashColor
     toolName.equals("Read", ignoreCase = true) ||
-        toolName.equals("Edit", ignoreCase = true) ||
-        toolName.equals("Write", ignoreCase = true) -> ToolFileColor
+            toolName.equals("Edit", ignoreCase = true) ||
+            toolName.equals("Write", ignoreCase = true) -> ToolFileColor
+
     toolName.equals("Grep", ignoreCase = true) ||
-        toolName.equals("Glob", ignoreCase = true) -> ToolSearchColor
+            toolName.equals("Glob", ignoreCase = true) -> ToolSearchColor
+
     toolName.equals("WebFetch", ignoreCase = true) -> ToolWebColor
     toolType == ToolType.ASK_USER_QUESTION -> ToolAskColor
     toolType == ToolType.PLAN -> ToolPlanColor

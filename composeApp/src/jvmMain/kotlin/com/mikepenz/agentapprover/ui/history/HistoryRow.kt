@@ -1,17 +1,24 @@
 package com.mikepenz.agentapprover.ui.history
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.desktop.ui.tooling.preview.Preview
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -21,22 +28,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mikepenz.agentapprover.model.*
+import com.mikepenz.agentapprover.model.ApprovalRequest
+import com.mikepenz.agentapprover.model.ApprovalResult
+import com.mikepenz.agentapprover.model.Decision
+import com.mikepenz.agentapprover.model.HookInput
+import com.mikepenz.agentapprover.model.RiskAnalysis
+import com.mikepenz.agentapprover.model.Source
+import com.mikepenz.agentapprover.model.ToolType
 import com.mikepenz.agentapprover.ui.approvals.ToolBadge
 import com.mikepenz.agentapprover.ui.approvals.ToolContentSummary
 import com.mikepenz.agentapprover.ui.icons.LucideCopy
-import com.mikepenz.agentapprover.ui.theme.*
-import kotlinx.serialization.json.Json
+import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
+import com.mikepenz.agentapprover.ui.theme.riskColor
+import com.mikepenz.agentapprover.ui.theme.riskLabel
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 
 private val prettyJson = Json { prettyPrint = true }
 
@@ -74,15 +89,15 @@ private fun summaryText(request: ApprovalRequest): String = when {
         request.hookInput.toolInput["command"]?.jsonPrimitive?.content ?: request.hookInput.toolName
 
     request.hookInput.toolName.equals("Edit", ignoreCase = true) ||
-        request.hookInput.toolName.equals("Write", ignoreCase = true) ||
-        request.hookInput.toolName.equals("Read", ignoreCase = true) ->
+            request.hookInput.toolName.equals("Write", ignoreCase = true) ||
+            request.hookInput.toolName.equals("Read", ignoreCase = true) ->
         request.hookInput.toolInput["file_path"]?.jsonPrimitive?.content ?: request.hookInput.toolName
 
     request.hookInput.toolName.equals("WebFetch", ignoreCase = true) ->
         request.hookInput.toolInput["url"]?.jsonPrimitive?.content ?: request.hookInput.toolName
 
     request.hookInput.toolName.equals("Grep", ignoreCase = true) ||
-        request.hookInput.toolName.equals("Glob", ignoreCase = true) ->
+            request.hookInput.toolName.equals("Glob", ignoreCase = true) ->
         request.hookInput.toolInput["pattern"]?.jsonPrimitive?.content ?: request.hookInput.toolName
 
     request.toolType == ToolType.ASK_USER_QUESTION ->
@@ -120,7 +135,9 @@ fun HistoryRow(
             modifier = Modifier
                 .combinedClickable(
                     onClick = onToggleExpand,
-                    onLongClick = if (onReplay != null) {{ onReplay(result) }} else null,
+                    onLongClick = if (onReplay != null) {
+                        { onReplay(result) }
+                    } else null,
                 )
                 .padding(8.dp),
         ) {
@@ -233,89 +250,89 @@ fun HistoryRow(
                             .fillMaxWidth()
                             .verticalScroll(rememberScrollState()),
                     ) {
-                    SelectionContainer {
-                        Column {
-                            if (result.riskAnalysis != null) {
+                        SelectionContainer {
+                            Column {
+                                if (result.riskAnalysis != null) {
+                                    Text(
+                                        text = "Risk Assessment:",
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    Text(
+                                        text = "Level ${result.riskAnalysis.risk} (${riskLabel(result.riskAnalysis.risk)}) — ${result.riskAnalysis.message}",
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = riskColor(result.riskAnalysis.risk),
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                if (result.request.hookInput.cwd.isNotBlank()) {
+                                    Text(
+                                        text = "Working Directory:",
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    Text(
+                                        text = result.request.hookInput.cwd,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFCCCCCC),
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                if (result.feedback != null) {
+                                    Text(
+                                        text = "Feedback:",
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    Text(
+                                        text = result.feedback,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFCCCCCC),
+                                    )
+                                    Spacer(Modifier.height(8.dp))
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                ToolContentSummary(
+                                    toolName = result.request.hookInput.toolName,
+                                    toolInput = result.request.hookInput.toolInput,
+                                    cwd = result.request.hookInput.cwd,
+                                )
+                                Spacer(Modifier.height(8.dp))
                                 Text(
-                                    text = "Risk Assessment:",
+                                    text = "Request:",
                                     fontSize = 10.sp,
                                     color = Color.Gray,
                                     style = MaterialTheme.typography.labelSmall,
                                 )
                                 Text(
-                                    text = "Level ${result.riskAnalysis.risk} (${riskLabel(result.riskAnalysis.risk)}) — ${result.riskAnalysis.message}",
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp,
-                                    color = riskColor(result.riskAnalysis.risk),
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            if (result.request.hookInput.cwd.isNotBlank()) {
-                                Text(
-                                    text = "Working Directory:",
-                                    fontSize = 10.sp,
-                                    color = Color.Gray,
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                                Text(
-                                    text = result.request.hookInput.cwd,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp,
-                                    color = Color(0xFFCCCCCC),
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            if (result.feedback != null) {
-                                Text(
-                                    text = "Feedback:",
-                                    fontSize = 10.sp,
-                                    color = Color.Gray,
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                                Text(
-                                    text = result.feedback,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.sp,
-                                    color = Color(0xFFCCCCCC),
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            ToolContentSummary(
-                                toolName = result.request.hookInput.toolName,
-                                toolInput = result.request.hookInput.toolInput,
-                                cwd = result.request.hookInput.cwd,
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                text = "Request:",
-                                fontSize = 10.sp,
-                                color = Color.Gray,
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                            Text(
-                                text = prettyPrintJson(result.request.rawRequestJson),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 10.sp,
-                                color = Color(0xFFCCCCCC),
-                            )
-                            if (result.rawResponseJson != null) {
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    text = "Response:",
-                                    fontSize = 10.sp,
-                                    color = Color.Gray,
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                                Text(
-                                    text = prettyPrintJson(result.rawResponseJson),
+                                    text = prettyPrintJson(result.request.rawRequestJson),
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 10.sp,
                                     color = Color(0xFFCCCCCC),
                                 )
+                                if (result.rawResponseJson != null) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = "Response:",
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                    Text(
+                                        text = prettyPrintJson(result.rawResponseJson),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = Color(0xFFCCCCCC),
+                                    )
+                                }
                             }
                         }
-                    }
                     }
 
                     // Overlapping copy button top-right

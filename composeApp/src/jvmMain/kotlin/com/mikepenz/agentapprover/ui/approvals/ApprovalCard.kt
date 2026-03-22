@@ -5,19 +5,57 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PlainTooltip
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mikepenz.agentapprover.model.*
-import com.mikepenz.agentapprover.ui.theme.*
+import com.mikepenz.agentapprover.model.ApprovalRequest
+import com.mikepenz.agentapprover.model.HookInput
+import com.mikepenz.agentapprover.model.RiskAnalysis
+import com.mikepenz.agentapprover.model.Source
+import com.mikepenz.agentapprover.model.SpecialToolParser
+import com.mikepenz.agentapprover.model.ToolType
+import com.mikepenz.agentapprover.ui.theme.AgentApproverTheme
+import com.mikepenz.agentapprover.ui.theme.RiskCritical
+import com.mikepenz.agentapprover.ui.theme.RiskSafe
+import com.mikepenz.agentapprover.ui.theme.riskColor
+import com.mikepenz.agentapprover.ui.theme.riskLabel
+import com.mikepenz.agentapprover.ui.theme.toolColor
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.JsonElement
@@ -136,6 +174,7 @@ fun ApprovalCard(
                                 onApproveWithInput = onApproveWithInput,
                                 onDismiss = onDismiss,
                             )
+
                         request.toolType == ToolType.PLAN && planData != null ->
                             PlanCard(
                                 request = request,
@@ -144,6 +183,7 @@ fun ApprovalCard(
                                 onDeny = onDeny,
                                 onPopOut = onPopOut,
                             )
+
                         else -> {
                             val popOut = remember(request) {
                                 toolPopOutContent(request.hookInput.toolName, request.hookInput.toolInput)
@@ -241,6 +281,7 @@ fun RiskBadge(riskResult: RiskAnalysis?, riskStatus: RiskStatus, riskError: Stri
                 Text("Analyzing...", fontSize = 10.sp, color = Color.Gray)
             }
         }
+
         riskStatus == RiskStatus.ERROR -> {
             Surface(
                 shape = RoundedCornerShape(4.dp),
@@ -254,6 +295,7 @@ fun RiskBadge(riskResult: RiskAnalysis?, riskStatus: RiskStatus, riskError: Stri
                 )
             }
         }
+
         riskResult != null -> {
             val color = riskColor(riskResult.risk)
             val label = riskResult.label.ifBlank { riskLabel(riskResult.risk) }
@@ -380,11 +422,13 @@ private fun PreviewRisk1() {
 private fun PreviewRisk3() {
     AgentApproverTheme {
         ApprovalCard(
-            request = sampleRequest(toolName = "Edit", toolInput = mapOf(
-                "file_path" to kotlinx.serialization.json.JsonPrimitive("/src/main.kt"),
-                "old_string" to kotlinx.serialization.json.JsonPrimitive("foo"),
-                "new_string" to kotlinx.serialization.json.JsonPrimitive("bar"),
-            )),
+            request = sampleRequest(
+                toolName = "Edit", toolInput = mapOf(
+                    "file_path" to kotlinx.serialization.json.JsonPrimitive("/src/main.kt"),
+                    "old_string" to kotlinx.serialization.json.JsonPrimitive("foo"),
+                    "new_string" to kotlinx.serialization.json.JsonPrimitive("bar"),
+                )
+            ),
             riskResult = RiskAnalysis(risk = 3, label = "Moderate", message = "Modifies source file"),
             riskStatus = RiskStatus.COMPLETED,
             riskError = null,
@@ -400,9 +444,11 @@ private fun PreviewRisk3() {
 private fun PreviewRisk5() {
     AgentApproverTheme {
         ApprovalCard(
-            request = sampleRequest(toolName = "Bash", toolInput = mapOf(
-                "command" to kotlinx.serialization.json.JsonPrimitive("rm -rf /"),
-            )),
+            request = sampleRequest(
+                toolName = "Bash", toolInput = mapOf(
+                    "command" to kotlinx.serialization.json.JsonPrimitive("rm -rf /"),
+                )
+            ),
             riskResult = RiskAnalysis(risk = 5, label = "Critical", message = "Destructive system command"),
             riskStatus = RiskStatus.COMPLETED,
             riskError = null,
