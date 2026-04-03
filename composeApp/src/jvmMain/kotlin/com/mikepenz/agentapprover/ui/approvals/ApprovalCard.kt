@@ -55,6 +55,8 @@ import com.mikepenz.agentapprover.ui.theme.RiskCritical
 import com.mikepenz.agentapprover.ui.theme.RiskSafe
 import com.mikepenz.agentapprover.ui.theme.riskColor
 import com.mikepenz.agentapprover.ui.theme.riskLabel
+import com.mikepenz.agentapprover.ui.theme.sourceColor
+import com.mikepenz.agentapprover.ui.theme.sourceLabel
 import com.mikepenz.agentapprover.ui.theme.toolColor
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
@@ -138,13 +140,19 @@ fun ApprovalCard(
                 }
 
                 Column(modifier = Modifier.padding(12.dp)) {
-                    // Tool badge + Risk badge + Timer row
+                    // Tool badge + Source badge + Risk badge + Timer row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ToolBadge(toolName = request.hookInput.toolName, toolType = request.toolType)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ToolBadge(toolName = request.hookInput.toolName, toolType = request.toolType)
+                            SourceBadge(source = request.source)
+                        }
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -262,6 +270,22 @@ fun ToolBadge(toolName: String, toolType: ToolType) {
             color = color,
             fontSize = 11.sp,
             style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
+@Composable
+fun SourceBadge(source: Source) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = sourceColor(source).copy(alpha = 0.15f),
+    ) {
+        Text(
+            text = sourceLabel(source),
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = sourceColor(source),
+            fontSize = 10.sp,
         )
     }
 }
