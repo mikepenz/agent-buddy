@@ -23,9 +23,14 @@ class CopilotRiskAnalyzer(
 ) : RiskAnalyzer {
     private val log = Logger.withTag("CopilotRiskAnalyzer")
     var model: String = model
-    var systemPrompt: String = customSystemPrompt.ifBlank {
-        RiskMessageBuilder.DEFAULT_SYSTEM_PROMPT + "\n\n" + JSON_FORMAT_INSTRUCTION
-    }
+    var systemPrompt: String = customSystemPrompt.ifBlank { RiskMessageBuilder.DEFAULT_SYSTEM_PROMPT }
+        set(value) {
+            field = value
+        }
+
+    /** The effective system prompt sent to Copilot, always with JSON format instruction appended. */
+    private val effectiveSystemPrompt: String
+        get() = systemPrompt + "\n\n" + JSON_FORMAT_INSTRUCTION
 
     private val json = Json { ignoreUnknownKeys = true }
     private var client: CopilotClient? = null
@@ -60,7 +65,7 @@ class CopilotRiskAnalyzer(
                     .setSystemMessage(
                         SystemMessageConfig()
                             .setMode(SystemMessageMode.REPLACE)
-                            .setContent(systemPrompt)
+                            .setContent(effectiveSystemPrompt)
                     )
 
                 val session = c.createSession(sessionConfig).await()
@@ -82,13 +87,13 @@ class CopilotRiskAnalyzer(
     }
 
     private fun parseResult(rawContent: String): RiskAnalysis {
-        // Strip possible markdown code fences
-        val cleaned = rawContent
-            .trim()
-            .removePrefix("```json")
-            .removePrefix("```")
-            .removeSuffix("```")
-            .trim()
+        // Extract JSON object from response — model may include prose around it
+        val firstBrace = rawContent.indexOf('{')
+        val lastBrace = rawContent.lastIndexOf('}')
+        if (firstBrace == -1 || lastBrace == -1 || lastBrace <= firstBrace) {
+            throw RuntimeException("No JSON object found in Copilot response: ${rawContent.take(200)}")
+        }
+        val cleaned = rawContent.substring(firstBrace, lastBrace + 1)
 
         val response = json.decodeFromString<RiskResponse>(cleaned)
         val level = response.level.coerceIn(1, 5)
