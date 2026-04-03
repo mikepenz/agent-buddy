@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,7 +65,6 @@ fun SettingsTab(
     onRegisterCopilotHook: (String) -> Unit = {},
     onUnregisterCopilotHook: (String) -> Unit = {},
     isCopilotHookRegistered: (String) -> Boolean = { false },
-    onCopyCopilotHooksJson: () -> Unit = {},
     onClearHistory: () -> Unit,
     onShowLicenses: () -> Unit = {},
 ) {
@@ -165,8 +165,11 @@ fun SettingsTab(
                     }
                 }
 
+                val copilotClipboardManager = LocalClipboardManager.current
                 OutlinedButton(
-                    onClick = onCopyCopilotHooksJson,
+                    onClick = {
+                        copilotClipboardManager.setText(AnnotatedString(com.mikepenz.agentapprover.hook.CopilotBridgeInstaller.hooksJsonSnippet()))
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text("Copy hooks.json snippet", fontSize = 12.sp)
@@ -177,7 +180,8 @@ fun SettingsTab(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Register hook in project", style = MaterialTheme.typography.bodySmall)
                         var projectPath by remember { mutableStateOf("") }
-                        val isRegistered = remember(projectPath) {
+                        var registrationKey by remember { mutableIntStateOf(0) }
+                        val isRegistered = remember(projectPath, registrationKey) {
                             if (projectPath.isNotBlank()) isCopilotHookRegistered(projectPath) else false
                         }
 
@@ -199,6 +203,7 @@ fun SettingsTab(
                             Button(
                                 onClick = {
                                     if (isRegistered) onUnregisterCopilotHook(projectPath) else onRegisterCopilotHook(projectPath)
+                                    registrationKey++
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = ButtonDefaults.buttonColors(

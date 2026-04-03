@@ -259,7 +259,6 @@ fun App(
                     onRegisterCopilotHook = { path -> CopilotBridgeInstaller.registerHook(path) },
                     onUnregisterCopilotHook = { path -> CopilotBridgeInstaller.unregisterHook(path) },
                     isCopilotHookRegistered = { path -> CopilotBridgeInstaller.isHookRegistered(path) },
-                    onCopyCopilotHooksJson = {},
                     onClearHistory = { stateManager.clearHistory() },
                     onShowLicenses = onShowLicenses,
                 )
