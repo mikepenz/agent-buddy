@@ -92,6 +92,7 @@ kotlin {
             implementation(libs.nucleus.notification.macos)
             implementation(libs.kotlinx.coroutines.jdk8)
             implementation(libs.copilot.sdk.java)
+            implementation(libs.sqlite.jdbc)
         }
     }
 }

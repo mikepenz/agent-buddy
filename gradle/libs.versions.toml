@@ -11,6 +11,7 @@ aboutlibraries = "14.0.0-b03"
 nucleus = "1.8.3"
 jna = "5.18.1"
 copilot-sdk = "0.2.1-java.1"
+sqlite = "3.49.1.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -35,6 +36,7 @@ nucleus-decorated-window-material3 = { module = "io.github.kdroidfilter:nucleus.
 nucleus-notification-macos = { module = "io.github.kdroidfilter:nucleus.notification-macos", version.ref = "nucleus" }
 kotlinx-coroutines-jdk8 = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-jdk8", version.ref = "kotlinx-coroutines" }
 copilot-sdk-java = { module = "com.github:copilot-sdk-java", version.ref = "copilot-sdk" }
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite" }
 
 [plugins]
 composeMultiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

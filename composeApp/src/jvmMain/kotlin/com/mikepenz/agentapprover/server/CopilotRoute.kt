@@ -74,6 +74,10 @@ fun Route.copilotApprovalRoute(
                 Decision.DENIED, Decision.AUTO_DENIED, Decision.TIMEOUT ->
                     copilotDenyResponse(result.feedback ?: "Request denied").toString()
                 Decision.CANCELLED_BY_CLIENT, Decision.RESOLVED_EXTERNALLY -> null
+                Decision.PROTECTION_BLOCKED ->
+                    copilotDenyResponse(result.feedback ?: "Blocked by protection rule").toString()
+                Decision.PROTECTION_LOGGED, Decision.PROTECTION_OVERRIDDEN ->
+                    copilotAllowResponse().toString()
             }
 
             if (responseJson != null) {

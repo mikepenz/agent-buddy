@@ -77,6 +77,12 @@ fun Route.approvalRoute(
                 Decision.DENIED, Decision.AUTO_DENIED, Decision.TIMEOUT ->
                     buildDenyResponse(result.feedback ?: "Request denied").toString()
                 Decision.CANCELLED_BY_CLIENT, Decision.RESOLVED_EXTERNALLY -> null
+                Decision.PROTECTION_BLOCKED ->
+                    buildDenyResponse(result.feedback ?: "Blocked by protection rule").toString()
+                Decision.PROTECTION_LOGGED, Decision.PROTECTION_OVERRIDDEN -> {
+                    val updatedInput = stateManager.getAndClearUpdatedInput(request.id)
+                    buildAllowResponse(updatedInput).toString()
+                }
             }
 
             if (responseJson != null) {

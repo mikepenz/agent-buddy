@@ -75,6 +75,9 @@ fun decisionColor(decision: Decision): Color = when (decision) {
     Decision.ALWAYS_ALLOWED -> Color(0xFF00ACC1)
     Decision.CANCELLED_BY_CLIENT -> Color(0xFF9E9E9E)
     Decision.RESOLVED_EXTERNALLY -> Color(0xFF78909C)
+    Decision.PROTECTION_BLOCKED -> Color(0xFFD32F2F)
+    Decision.PROTECTION_LOGGED -> Color(0xFFFF9800)
+    Decision.PROTECTION_OVERRIDDEN -> Color(0xFF7B1FA2)
 }
 
 private fun decisionLabel(decision: Decision): String = when (decision) {
@@ -86,6 +89,9 @@ private fun decisionLabel(decision: Decision): String = when (decision) {
     Decision.ALWAYS_ALLOWED -> "Always Allowed"
     Decision.CANCELLED_BY_CLIENT -> "Cancelled"
     Decision.RESOLVED_EXTERNALLY -> "Resolved Externally"
+    Decision.PROTECTION_BLOCKED -> "Protection Blocked"
+    Decision.PROTECTION_LOGGED -> "Protection Logged"
+    Decision.PROTECTION_OVERRIDDEN -> "Protection Overridden"
 }
 
 private fun summaryText(request: ApprovalRequest): String = when {

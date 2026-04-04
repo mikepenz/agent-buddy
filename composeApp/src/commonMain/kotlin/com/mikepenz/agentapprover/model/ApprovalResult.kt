@@ -11,11 +11,14 @@ data class ApprovalResult(
     val riskAnalysis: RiskAnalysis? = null,
     val rawResponseJson: String? = null,
     val decidedAt: Instant,
+    val protectionModule: String? = null,
+    val protectionRule: String? = null,
+    val protectionDetail: String? = null,
 )
 
 @Serializable
 enum class Decision {
-    APPROVED, DENIED, TIMEOUT, AUTO_APPROVED, AUTO_DENIED, ALWAYS_ALLOWED, CANCELLED_BY_CLIENT, RESOLVED_EXTERNALLY
+    APPROVED, DENIED, TIMEOUT, AUTO_APPROVED, AUTO_DENIED, ALWAYS_ALLOWED, CANCELLED_BY_CLIENT, RESOLVED_EXTERNALLY, PROTECTION_BLOCKED, PROTECTION_LOGGED, PROTECTION_OVERRIDDEN
 }
 
 @Serializable

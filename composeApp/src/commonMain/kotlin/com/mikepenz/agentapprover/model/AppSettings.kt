@@ -29,4 +29,6 @@ data class AppSettings(
     val windowY: Int? = null,
     val windowWidth: Int? = null,
     val windowHeight: Int? = null,
+    val protectionSettings: ProtectionSettings = ProtectionSettings(),
+    val maxHistoryEntries: Int = 1000,
 )
