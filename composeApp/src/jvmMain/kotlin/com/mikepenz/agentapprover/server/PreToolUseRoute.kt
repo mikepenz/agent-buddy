@@ -46,8 +46,7 @@ fun Route.preToolUseRoute(
         when (severity) {
             ProtectionMode.AUTO_BLOCK -> {
                 logProtectionHit(stateManager, request, Decision.PROTECTION_BLOCKED, primaryHit, combinedMessage)
-                val responseJson = buildJsonObject { put("error", combinedMessage) }.toString()
-                call.respondText(responseJson, contentType = ContentType.Application.Json)
+                call.respondText(buildDenyResponse(combinedMessage), contentType = ContentType.Application.Json)
             }
 
             ProtectionMode.ASK_AUTO_BLOCK -> {
@@ -106,7 +105,7 @@ private suspend fun handleAskMode(
 
         if (result == null) {
             // Timeout — auto-deny; resolve() handles DB + state
-            val responseJson = buildJsonObject { put("error", combinedMessage) }.toString()
+            val responseJson = buildDenyResponse(combinedMessage)
             stateManager.resolve(
                 requestId = request.id,
                 decision = Decision.PROTECTION_BLOCKED,
@@ -122,7 +121,7 @@ private suspend fun handleAskMode(
             Decision.APPROVED, Decision.AUTO_APPROVED, Decision.ALWAYS_ALLOWED,
             Decision.PROTECTION_OVERRIDDEN -> {
                 // resolve() already wrote to DB + state; just update raw response
-                val responseJson = "{}"
+                val responseJson = buildAllowResponse()
                 stateManager.updateHistoryRawResponse(request.id, responseJson)
                 try {
                     call.respondText(responseJson, contentType = ContentType.Application.Json)
@@ -134,7 +133,7 @@ private suspend fun handleAskMode(
             Decision.DENIED, Decision.AUTO_DENIED, Decision.TIMEOUT,
             Decision.PROTECTION_BLOCKED -> {
                 // resolve() already wrote to DB + state; just update raw response
-                val responseJson = buildJsonObject { put("error", result.feedback?.takeIf { it.isNotBlank() } ?: combinedMessage) }.toString()
+                val responseJson = buildDenyResponse(result.feedback?.takeIf { it.isNotBlank() } ?: combinedMessage)
                 stateManager.updateHistoryRawResponse(request.id, responseJson)
                 try {
                     call.respondText(responseJson, contentType = ContentType.Application.Json)
@@ -149,7 +148,7 @@ private suspend fun handleAskMode(
 
             Decision.PROTECTION_LOGGED -> {
                 // resolve() already wrote to DB + state; just update raw response
-                val responseJson = "{}"
+                val responseJson = buildAllowResponse()
                 stateManager.updateHistoryRawResponse(request.id, responseJson)
                 try {
                     call.respondText(responseJson, contentType = ContentType.Application.Json)
@@ -172,6 +171,21 @@ private suspend fun handleAskMode(
         }
     }
 }
+
+private fun buildDenyResponse(reason: String): String = buildJsonObject {
+    put("hookSpecificOutput", buildJsonObject {
+        put("hookEventName", "PreToolUse")
+        put("permissionDecision", "deny")
+        put("permissionDecisionReason", reason)
+    })
+}.toString()
+
+private fun buildAllowResponse(): String = buildJsonObject {
+    put("hookSpecificOutput", buildJsonObject {
+        put("hookEventName", "PreToolUse")
+        put("permissionDecision", "allow")
+    })
+}.toString()
 
 private fun logProtectionHit(
     stateManager: AppStateManager,
