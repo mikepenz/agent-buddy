@@ -1,0 +1,203 @@
+package com.mikepenz.agentapprover.storage
+
+import com.mikepenz.agentapprover.model.*
+import kotlinx.datetime.Clock
+import java.io.File
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class DatabaseStorageTest {
+
+    private lateinit var tempDir: File
+    private lateinit var storage: DatabaseStorage
+
+    @BeforeTest
+    fun setUp() {
+        tempDir = File(System.getProperty("java.io.tmpdir"), "db-test-${System.currentTimeMillis()}")
+        tempDir.mkdirs()
+        storage = DatabaseStorage(tempDir.absolutePath)
+    }
+
+    @AfterTest
+    fun tearDown() {
+        storage.close()
+        tempDir.deleteRecursively()
+    }
+
+    private fun makeApprovalResult(
+        id: String = "req-1",
+        source: Source = Source.CLAUDE_CODE,
+        toolType: ToolType = ToolType.DEFAULT,
+        toolName: String = "Bash",
+        sessionId: String = "session-1",
+        cwd: String = "/tmp",
+        decision: Decision = Decision.APPROVED,
+        feedback: String? = null,
+        riskAnalysis: RiskAnalysis? = null,
+        rawResponseJson: String? = null,
+        protectionModule: String? = null,
+        protectionRule: String? = null,
+        protectionDetail: String? = null,
+    ): ApprovalResult = ApprovalResult(
+        request = ApprovalRequest(
+            id = id,
+            source = source,
+            toolType = toolType,
+            hookInput = HookInput(
+                sessionId = sessionId,
+                toolName = toolName,
+                cwd = cwd,
+            ),
+            timestamp = Clock.System.now(),
+            rawRequestJson = """{"tool":"$toolName"}""",
+        ),
+        decision = decision,
+        feedback = feedback,
+        riskAnalysis = riskAnalysis,
+        rawResponseJson = rawResponseJson,
+        decidedAt = Clock.System.now(),
+        protectionModule = protectionModule,
+        protectionRule = protectionRule,
+        protectionDetail = protectionDetail,
+    )
+
+    @Test
+    fun insertAndLoadApproval() {
+        val result = makeApprovalResult(
+            id = "test-1",
+            source = Source.COPILOT,
+            toolType = ToolType.ASK_USER_QUESTION,
+            toolName = "ReadFile",
+            sessionId = "sess-42",
+            cwd = "/home/user",
+            decision = Decision.DENIED,
+            feedback = "Looks dangerous",
+            riskAnalysis = RiskAnalysis(risk = 3, label = "medium", message = "Moderate risk", source = "ai"),
+            rawResponseJson = """{"allowed":false}""",
+        )
+
+        storage.insert(result)
+        val loaded = storage.loadAll()
+
+        assertEquals(1, loaded.size)
+        val r = loaded.first()
+        assertEquals("test-1", r.request.id)
+        assertEquals(Source.COPILOT, r.request.source)
+        assertEquals(ToolType.ASK_USER_QUESTION, r.request.toolType)
+        assertEquals("ReadFile", r.request.hookInput.toolName)
+        assertEquals("sess-42", r.request.hookInput.sessionId)
+        assertEquals("/home/user", r.request.hookInput.cwd)
+        assertEquals(Decision.DENIED, r.decision)
+        assertEquals("Looks dangerous", r.feedback)
+        val risk = assertNotNull(r.riskAnalysis)
+        assertEquals(3, risk.risk)
+        assertEquals("medium", risk.label)
+        assertEquals("Moderate risk", risk.message)
+        assertEquals("ai", risk.source)
+        assertEquals("""{"allowed":false}""", r.rawResponseJson)
+        assertNull(r.protectionModule)
+        assertEquals(result.request.rawRequestJson, r.request.rawRequestJson)
+    }
+
+    @Test
+    fun insertAndLoadProtectionHit() {
+        val result = makeApprovalResult(
+            id = "prot-1",
+            decision = Decision.PROTECTION_BLOCKED,
+            protectionModule = "destructive-commands",
+            protectionRule = "rm-rf",
+            protectionDetail = "Blocked rm -rf /",
+        )
+
+        storage.insert(result)
+        val loaded = storage.loadAll()
+
+        assertEquals(1, loaded.size)
+        val r = loaded.first()
+        assertEquals("prot-1", r.request.id)
+        assertEquals(Decision.PROTECTION_BLOCKED, r.decision)
+        assertEquals("destructive-commands", r.protectionModule)
+        assertEquals("rm-rf", r.protectionRule)
+        assertEquals("Blocked rm -rf /", r.protectionDetail)
+    }
+
+    @Test
+    fun loadByTypeFilter() {
+        val approval = makeApprovalResult(id = "a-1", decision = Decision.APPROVED)
+        val protection = makeApprovalResult(
+            id = "p-1",
+            decision = Decision.PROTECTION_BLOCKED,
+            protectionModule = "sensitive-files",
+            protectionRule = "env-file",
+            protectionDetail = "Blocked .env access",
+        )
+        val approval2 = makeApprovalResult(id = "a-2", decision = Decision.DENIED)
+
+        storage.insert(approval)
+        storage.insert(protection)
+        storage.insert(approval2)
+
+        val approvals = storage.loadByType("approval")
+        assertEquals(2, approvals.size)
+        assertTrue(approvals.all { it.protectionModule == null })
+
+        val protections = storage.loadByType("protection")
+        assertEquals(1, protections.size)
+        assertEquals("p-1", protections.first().request.id)
+    }
+
+    @Test
+    fun prunesOldEntries() {
+        storage.close()
+        storage = DatabaseStorage(tempDir.absolutePath, maxEntries = 5)
+
+        for (i in 1..8) {
+            val result = makeApprovalResult(id = "prune-$i")
+            storage.insert(result)
+        }
+
+        assertEquals(5, storage.count())
+        val loaded = storage.loadAll()
+        assertEquals(5, loaded.size)
+        // Should keep the newest 5 (ids 4..8)
+        assertEquals("prune-4", loaded.first().request.id)
+        assertEquals("prune-8", loaded.last().request.id)
+    }
+
+    @Test
+    fun updateRawResponse() {
+        val result = makeApprovalResult(id = "upd-1", rawResponseJson = null)
+        storage.insert(result)
+
+        assertNull(storage.loadAll().first().rawResponseJson)
+
+        storage.updateRawResponse("upd-1", """{"result":"ok"}""")
+
+        val loaded = storage.loadAll()
+        assertEquals("""{"result":"ok"}""", loaded.first().rawResponseJson)
+    }
+
+    @Test
+    fun clearAll() {
+        storage.insert(makeApprovalResult(id = "c-1"))
+        storage.insert(makeApprovalResult(id = "c-2"))
+        assertEquals(2, storage.count())
+
+        storage.clearAll()
+
+        assertEquals(0, storage.count())
+        assertTrue(storage.loadAll().isEmpty())
+    }
+
+    @Test
+    fun count() {
+        storage.insert(makeApprovalResult(id = "cnt-1"))
+        storage.insert(makeApprovalResult(id = "cnt-2"))
+        assertEquals(2, storage.count())
+    }
+}
