@@ -34,6 +34,7 @@ object InlineScriptsModule : ProtectionModule {
         override val id = "heredoc_script"
         override val name = "Heredoc to script file"
         override val description = "Detects heredoc redirected to script files (.sh, .py, .rb, .pl, .js, .bash)."
+        override val correctiveHint = "Instead of heredoc scripts, create a proper script file in scripts/ with set -euo pipefail, --help support, and register it in scripts/SCRIPTS.md"
         private val pattern = Regex("""\b(cat|tee)\s+>?\s*\S+\.(sh|py|rb|pl|js|bash)\s*<<""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
@@ -50,6 +51,7 @@ object InlineScriptsModule : ProtectionModule {
         override val id = "shebang_write"
         override val name = "Shebang via echo/printf"
         override val description = "Detects writing shebang lines via echo or printf."
+        override val correctiveHint = "Instead of writing shebangs via echo, create a proper script file in scripts/ using the Write tool"
         private val pattern = Regex("""(echo|printf)\s+['"]#!/""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
@@ -66,6 +68,7 @@ object InlineScriptsModule : ProtectionModule {
         override val id = "bash_c_complex"
         override val name = "Complex bash -c"
         override val description = "Detects bash -c with 4 or more chained commands."
+        override val correctiveHint = "Complex bash -c with multiple chained commands. Create a proper script in scripts/ instead."
         private val bashCPattern = Regex("""\bbash\s+-c\s""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
@@ -84,6 +87,7 @@ object InlineScriptsModule : ProtectionModule {
         override val id = "interpreter_long"
         override val name = "Long inline interpreter code"
         override val description = "Detects python -c, node -e, or ruby -e with more than 150 characters of inline code."
+        override val correctiveHint = "Long inline interpreter code detected. Create a proper script file in scripts/ instead."
         private val pattern = Regex("""\b(python[23]?|node|ruby)\s+(-c|-e)\s+['"](.{150,})""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {

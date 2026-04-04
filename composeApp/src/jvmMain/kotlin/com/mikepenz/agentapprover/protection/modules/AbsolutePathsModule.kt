@@ -46,6 +46,7 @@ object AbsolutePathsModule : ProtectionModule {
         override val id = "project_absolute"
         override val name = "Absolute path inside project"
         override val description = "Detects absolute paths that could be expressed as relative paths within the project."
+        override val correctiveHint = "Use relative paths (e.g. ./src/file.kt) instead of absolute project paths. Relative paths are portable and don't trigger unnecessary permission prompts."
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
@@ -62,6 +63,7 @@ object AbsolutePathsModule : ProtectionModule {
         override val id = "home_absolute"
         override val name = "Absolute path inside home"
         override val description = "Detects absolute paths inside the user's home directory but outside the project."
+        override val correctiveHint = "Absolute path inside home directory detected. Consider whether this path really needs to be accessed."
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null

@@ -7,5 +7,7 @@ interface ProtectionRule {
     val id: String
     val name: String
     val description: String
+    /** The message the AI receives when this rule fires. Shown in UI for corrective modules. */
+    val correctiveHint: String get() = ""
     fun evaluate(hookInput: HookInput): ProtectionHit?
 }

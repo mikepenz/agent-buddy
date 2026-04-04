@@ -32,6 +32,7 @@ object PythonVenvModule : ProtectionModule {
         override val id = "bare_python"
         override val name = "Bare python command"
         override val description = "Detects bare python command without virtual environment."
+        override val correctiveHint = "Use .venv/bin/python or uv run python instead. Create a venv with: uv venv"
         private val pattern = Regex("""\bpython[23]?\s""")
         private val allowPatterns = listOf(
             Regex("""\bpython3\s+--version\b"""),
@@ -51,6 +52,7 @@ object PythonVenvModule : ProtectionModule {
         override val id = "bare_pip"
         override val name = "Bare pip install"
         override val description = "Detects pip install without virtual environment."
+        override val correctiveHint = "Use uv pip install or activate a virtual environment first. Create one with: uv venv && source .venv/bin/activate"
         private val pipPattern = Regex("""\b(pip|pip3)\s+install\b""")
         private val pythonMPipPattern = Regex("""\bpython[23]?\s+-m\s+pip\s+install\b""")
         private val allowPattern = Regex("""\buv\s+pip\s+install\b""")
@@ -67,6 +69,7 @@ object PythonVenvModule : ProtectionModule {
         override val id = "python_m_venv"
         override val name = "Python -m venv"
         override val description = "Detects python -m venv and suggests uv venv instead."
+        override val correctiveHint = "Use uv venv instead of python -m venv. uv is faster and more reliable."
         private val pattern = Regex("""\bpython[23]?\s+-m\s+venv\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {

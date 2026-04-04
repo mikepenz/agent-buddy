@@ -3,6 +3,8 @@ package com.mikepenz.agentapprover.ui.settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,6 +13,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -67,12 +71,14 @@ fun ProtectionsSettingsContent(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             ) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Collapsed header - always visible
+                Column {
+                    // Clickable header area — hover/ripple only on header
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { expanded = !expanded },
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { expanded = !expanded }
+                            .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
@@ -89,7 +95,10 @@ fun ProtectionsSettingsContent(
 
                     // Expanded content
                     AnimatedVisibility(visible = expanded) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
                             // Mode selector dropdown
                             ModeSelector(
                                 currentMode = effectiveMode,
@@ -111,20 +120,21 @@ fun ProtectionsSettingsContent(
                                 )
                                 module.rules.forEach { rule ->
                                     val isDisabled = rule.id in moduleSettings.disabledRules
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(rule.name, style = MaterialTheme.typography.bodySmall)
-                                            Text(
-                                                rule.description,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                        Switch(
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(rule.name, style = MaterialTheme.typography.bodySmall)
+                                                Text(
+                                                    rule.description,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                            Switch(
                                             checked = !isDisabled,
                                             onCheckedChange = { enabled ->
                                                 val newDisabled = if (!enabled) {
@@ -140,6 +150,30 @@ fun ProtectionsSettingsContent(
                                             enabled = effectiveMode != ProtectionMode.DISABLED,
                                         )
                                     }
+                                    // Show corrective hint for corrective modules
+                                    if (module.corrective && rule.correctiveHint.isNotEmpty()) {
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 4.dp),
+                                            color = Color(0xFF4CAF50).copy(alpha = 0.08f),
+                                            shape = MaterialTheme.shapes.small,
+                                        ) {
+                                            Column(modifier = Modifier.padding(8.dp)) {
+                                                Text(
+                                                    "AI receives:",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color(0xFF4CAF50),
+                                                )
+                                                Text(
+                                                    rule.correctiveHint,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    }
                                 }
                             }
                         }
@@ -153,7 +187,7 @@ fun ProtectionsSettingsContent(
 @Composable
 private fun ModeBadge(mode: ProtectionMode, corrective: Boolean) {
     val (text, color) = when (mode) {
-        ProtectionMode.AUTO_BLOCK -> (if (corrective) "Auto-correct" else "Auto-block") to Color(0xFFF44336)
+        ProtectionMode.AUTO_BLOCK -> if (corrective) "Auto-correct" to Color(0xFF4CAF50) else "Auto-block" to Color(0xFFF44336)
         ProtectionMode.ASK_AUTO_BLOCK -> "Ask + Auto-block" to Color(0xFFFF9800)
         ProtectionMode.ASK -> "Ask" to Color(0xFFFFC107)
         ProtectionMode.LOG_ONLY -> "Log only" to Color(0xFF2196F3)
