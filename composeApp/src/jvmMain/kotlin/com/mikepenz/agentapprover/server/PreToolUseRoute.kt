@@ -36,6 +36,7 @@ fun Route.preToolUseRoute(
         }
 
         val hits = protectionEngine.evaluate(request.hookInput)
+        stateManager.addPreToolUseEvent(request, hits)
         if (hits.isEmpty()) {
             call.respondText("{}", contentType = ContentType.Application.Json)
             return@post

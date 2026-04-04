@@ -26,16 +26,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mikepenz.agentapprover.hook.CopilotBridgeInstaller
 import com.mikepenz.agentapprover.hook.HookRegistrar
 import com.mikepenz.agentapprover.model.Decision
 import com.mikepenz.agentapprover.model.ToolType
+import com.mikepenz.agentapprover.protection.ProtectionEngine
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.risk.RiskAnalyzer
 import com.mikepenz.agentapprover.state.AppStateManager
 import com.mikepenz.agentapprover.ui.approvals.ApprovalsTab
 import com.mikepenz.agentapprover.ui.approvals.RiskStatus
 import com.mikepenz.agentapprover.ui.history.HistoryTab
+import com.mikepenz.agentapprover.ui.protectionlog.ProtectionLogTab
 import com.mikepenz.agentapprover.ui.settings.SettingsTab
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -50,6 +53,7 @@ fun App(
     onPopOut: ((title: String, content: String) -> Unit)? = null,
     onShowLicenses: () -> Unit = {},
     protectionModules: List<ProtectionModule> = emptyList(),
+    protectionEngine: ProtectionEngine? = null,
 ) {
     val state by stateManager.state.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -129,31 +133,47 @@ fun App(
             }
         }
 
+        val tabLabels = buildList {
+            add("Approvals")
+            add("History")
+            if (devMode) add("Protection Log")
+            add("Settings")
+        }
+        val protectionLogIndex = if (devMode) 2 else -1
+        val settingsIndex = if (devMode) 3 else 2
+
         TabRow(selectedTabIndex = selectedTab) {
-            Tab(
-                selected = selectedTab == 0,
-                onClick = { selectedTab = 0 },
-                text = {
-                    if (state.pendingApprovals.isNotEmpty()) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Approvals")
-                            Badge { Text("${state.pendingApprovals.size}") }
+            tabLabels.forEachIndexed { index, label ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = {
+                        when (label) {
+                            "Approvals" -> {
+                                if (state.pendingApprovals.isNotEmpty()) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("Approvals")
+                                        Badge { Text("${state.pendingApprovals.size}") }
+                                    }
+                                } else {
+                                    Text("Approvals")
+                                }
+                            }
+                            "Protection Log" -> {
+                                if (state.preToolUseLog.isNotEmpty()) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("Protection Log", fontSize = 12.sp)
+                                        Badge { Text("${state.preToolUseLog.size}") }
+                                    }
+                                } else {
+                                    Text("Protection Log", fontSize = 12.sp)
+                                }
+                            }
+                            else -> Text(label)
                         }
-                    } else {
-                        Text("Approvals")
-                    }
-                },
-            )
-            Tab(
-                selected = selectedTab == 1,
-                onClick = { selectedTab = 1 },
-                text = { Text("History") },
-            )
-            Tab(
-                selected = selectedTab == 2,
-                onClick = { selectedTab = 2 },
-                text = { Text("Settings") },
-            )
+                    },
+                )
+            }
         }
 
         when (selectedTab) {
@@ -227,7 +247,17 @@ fun App(
                 } else null,
             )
 
-            2 -> {
+            protectionLogIndex -> {
+                if (protectionEngine != null) {
+                    ProtectionLogTab(
+                        events = state.preToolUseLog,
+                        protectionEngine = protectionEngine,
+                        onClear = { stateManager.clearPreToolUseLog() },
+                    )
+                }
+            }
+
+            settingsIndex -> {
                 var isHookRegistered by remember { mutableStateOf(hookRegistrar.isRegistered(state.settings.serverPort)) }
 
                 // Re-check when port changes

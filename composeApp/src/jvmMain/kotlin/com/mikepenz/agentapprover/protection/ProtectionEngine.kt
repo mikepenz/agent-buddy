@@ -32,4 +32,34 @@ class ProtectionEngine(
     fun highestSeverity(hits: List<ProtectionHit>): ProtectionMode {
         return hits.minByOrNull { it.mode.ordinal }?.mode ?: ProtectionMode.DISABLED
     }
+
+    fun evaluateAll(hookInput: HookInput): List<ProtectionEvaluation> {
+        val settings = settingsProvider()
+        return modules.map { module ->
+            val moduleSettings = settings.modules[module.id]
+            val mode = moduleSettings?.mode ?: module.defaultMode
+            val enabled = mode != ProtectionMode.DISABLED
+            val applicable = hookInput.toolName in module.applicableTools
+            val disabledRules = moduleSettings?.disabledRules ?: emptySet()
+            val ruleResults = module.rules.map { rule ->
+                val ruleEnabled = rule.id !in disabledRules
+                val hit = if (enabled && applicable && ruleEnabled) rule.evaluate(hookInput) else null
+                RuleEvalResult(
+                    ruleId = rule.id,
+                    ruleName = rule.name,
+                    enabled = ruleEnabled,
+                    matched = hit != null,
+                    message = hit?.message,
+                )
+            }
+            ProtectionEvaluation(
+                moduleId = module.id,
+                moduleName = module.name,
+                mode = mode,
+                applicable = applicable,
+                enabled = enabled,
+                ruleResults = ruleResults,
+            )
+        }
+    }
 }

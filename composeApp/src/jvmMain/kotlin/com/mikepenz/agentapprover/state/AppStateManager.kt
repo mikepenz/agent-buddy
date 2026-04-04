@@ -16,11 +16,13 @@ data class AppState(
     val history: List<ApprovalResult> = emptyList(),
     val settings: AppSettings = AppSettings(),
     val riskResults: Map<String, RiskAnalysis> = emptyMap(),
+    val preToolUseLog: List<PreToolUseEvent> = emptyList(),
 )
 
 class AppStateManager(
     private val databaseStorage: DatabaseStorage? = null,
     private val settingsStorage: SettingsStorage? = null,
+    val devMode: Boolean = false,
 ) {
     private val _state = MutableStateFlow(AppState())
     val state: StateFlow<AppState> = _state.asStateFlow()
@@ -104,5 +106,23 @@ class AppStateManager(
     fun clearHistory() {
         _state.update { it.copy(history = emptyList()) }
         databaseStorage?.clearAll()
+    }
+
+    fun addPreToolUseEvent(request: ApprovalRequest, hits: List<ProtectionHit>) {
+        if (!devMode) return
+        val event = PreToolUseEvent(
+            request = request,
+            hits = hits,
+            conclusion = conclusionFromHits(hits),
+            timestamp = request.timestamp,
+        )
+        _state.update { current ->
+            val newLog = (listOf(event) + current.preToolUseLog).take(200)
+            current.copy(preToolUseLog = newLog)
+        }
+    }
+
+    fun clearPreToolUseLog() {
+        _state.update { it.copy(preToolUseLog = emptyList()) }
     }
 }

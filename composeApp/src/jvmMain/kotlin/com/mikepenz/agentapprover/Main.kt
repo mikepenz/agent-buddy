@@ -86,7 +86,7 @@ fun main(args: Array<String>) {
     val maxEntries = settingsStorage.load().maxHistoryEntries
     val databaseStorage = DatabaseStorage(dataDir, maxEntries = maxEntries)
     databaseStorage.migrateFromJson(dataDir)
-    val stateManager = AppStateManager(databaseStorage = databaseStorage, settingsStorage = settingsStorage)
+    val stateManager = AppStateManager(databaseStorage = databaseStorage, settingsStorage = settingsStorage, devMode = devMode)
     stateManager.initialize()
 
     val protectionEngine = ProtectionEngine(
@@ -395,6 +395,7 @@ fun main(args: Array<String>) {
                             onPopOut = { title, content -> popOutState = title to content },
                             onShowLicenses = { showLicenses = true },
                             protectionModules = protectionEngine.modules,
+                            protectionEngine = protectionEngine,
                         )
                     }
                 }
