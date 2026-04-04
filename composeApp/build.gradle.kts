@@ -128,6 +128,8 @@ nucleus.application {
 
         cleanupNativeLibs = true
 
+        modules("java.sql")
+
         macOS {
             iconFile.set(project.file("../icons/app.icns"))
             layeredIconDir.set(project.file("../icons/AgentApprover.icon"))
