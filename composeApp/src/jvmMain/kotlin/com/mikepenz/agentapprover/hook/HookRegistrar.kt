@@ -18,6 +18,7 @@ private val logger = Logger.withTag("HookRegistrar")
 private val json = Json {
     ignoreUnknownKeys = true
     prettyPrint = true
+    explicitNulls = false
 }
 
 @Serializable
@@ -30,6 +31,7 @@ private data class HookEntry(
 private data class HookDef(
     val type: String,
     val url: String,
+    val timeout: Int? = null,
 )
 
 object HookRegistrar {
@@ -41,23 +43,29 @@ object HookRegistrar {
 
     private fun hookUrl(port: Int): String = "http://localhost:$port/approve"
 
+    private fun preToolUseUrl(port: Int): String = "http://localhost:$port/pre-tool-use"
+
+    private fun hasHook(hooks: JsonObject, event: String, url: String): Boolean {
+        val entries = hooks[event]?.jsonArray ?: return false
+        return entries.any { entry ->
+            val obj = entry.jsonObject
+            val innerHooks = obj["hooks"]?.jsonArray ?: return@any false
+            innerHooks.any { h ->
+                val hObj = h.jsonObject
+                hObj["type"].toString().trim('"') == "http" &&
+                    hObj["url"].toString().trim('"') == url
+            }
+        }
+    }
+
     fun isRegistered(port: Int): Boolean {
         val file = settingsFile()
         if (!file.exists()) return false
         return try {
             val root = json.parseToJsonElement(file.readText()).jsonObject
             val hooks = root["hooks"]?.jsonObject ?: return false
-            val permEntries = hooks["PermissionRequest"]?.jsonArray ?: return false
-            val url = hookUrl(port)
-            permEntries.any { entry ->
-                val obj = entry.jsonObject
-                val innerHooks = obj["hooks"]?.jsonArray ?: return@any false
-                innerHooks.any { h ->
-                    val hObj = h.jsonObject
-                    hObj["type"].toString().trim('"') == "http" &&
-                        hObj["url"].toString().trim('"') == url
-                }
-            }
+            hasHook(hooks, "PermissionRequest", hookUrl(port)) &&
+                hasHook(hooks, "PreToolUse", preToolUseUrl(port))
         } catch (e: Exception) {
             logger.w(e) { "Failed to read settings.json" }
             false
@@ -66,12 +74,6 @@ object HookRegistrar {
 
     fun register(port: Int) {
         val file = settingsFile()
-        val url = hookUrl(port)
-
-        if (isRegistered(port)) {
-            logger.i { "Hook already registered for port $port" }
-            return
-        }
 
         val root: JsonObject = if (file.exists()) {
             try {
@@ -84,22 +86,45 @@ object HookRegistrar {
             JsonObject(emptyMap())
         }
 
-        val newEntry = json.encodeToJsonElement(
-            HookEntry(
-                matcher = "",
-                hooks = listOf(HookDef(type = "http", url = url)),
-            )
-        )
-
         val existingHooks = root["hooks"]?.jsonObject ?: JsonObject(emptyMap())
-        val existingPerm = existingHooks["PermissionRequest"]?.jsonArray?.toMutableList() ?: mutableListOf()
-        existingPerm.add(newEntry)
+
+        val permUrl = hookUrl(port)
+        val ptuUrl = preToolUseUrl(port)
+
+        val hasPermHook = hasHook(existingHooks, "PermissionRequest", permUrl)
+        val hasPtuHook = hasHook(existingHooks, "PreToolUse", ptuUrl)
+
+        if (hasPermHook && hasPtuHook) {
+            logger.i { "Hooks already registered for port $port" }
+            return
+        }
+
+        // Build PermissionRequest array
+        val permList = existingHooks["PermissionRequest"]?.jsonArray?.toMutableList() ?: mutableListOf()
+        if (!hasPermHook) {
+            permList.add(
+                json.encodeToJsonElement(
+                    HookEntry(matcher = "", hooks = listOf(HookDef(type = "http", url = permUrl)))
+                )
+            )
+        }
+
+        // Build PreToolUse array
+        val ptuList = existingHooks["PreToolUse"]?.jsonArray?.toMutableList() ?: mutableListOf()
+        if (!hasPtuHook) {
+            ptuList.add(
+                json.encodeToJsonElement(
+                    HookEntry(matcher = "", hooks = listOf(HookDef(type = "http", url = ptuUrl, timeout = 120)))
+                )
+            )
+        }
 
         val updatedHooks = buildJsonObject {
             existingHooks.forEach { (key, value) ->
-                if (key != "PermissionRequest") put(key, value)
+                if (key != "PermissionRequest" && key != "PreToolUse") put(key, value)
             }
-            put("PermissionRequest", Json.encodeToJsonElement(existingPerm))
+            put("PermissionRequest", Json.encodeToJsonElement(permList))
+            put("PreToolUse", Json.encodeToJsonElement(ptuList))
         }
 
         val updatedRoot = buildJsonObject {
@@ -111,7 +136,7 @@ object HookRegistrar {
 
         file.parentFile.mkdirs()
         file.writeText(json.encodeToString(JsonElement.serializer(), updatedRoot))
-        logger.i { "Registered hook for port $port" }
+        logger.i { "Registered hooks for port $port" }
     }
 
     fun unregister(port: Int) {
@@ -126,26 +151,33 @@ object HookRegistrar {
         }
 
         val existingHooks = root["hooks"]?.jsonObject ?: return
-        val existingPerm = existingHooks["PermissionRequest"]?.jsonArray ?: return
-        val url = hookUrl(port)
 
-        val filtered = existingPerm.filter { entry ->
-            val obj = entry.jsonObject
-            val innerHooks = obj["hooks"]?.jsonArray ?: return@filter true
-            val hasOurHook = innerHooks.any { h ->
-                val hObj = h.jsonObject
-                hObj["type"].toString().trim('"') == "http" &&
-                    hObj["url"].toString().trim('"') == url
+        fun filterHooks(event: String, url: String): List<JsonElement> {
+            val entries = existingHooks[event]?.jsonArray ?: return emptyList()
+            return entries.filter { entry ->
+                val obj = entry.jsonObject
+                val innerHooks = obj["hooks"]?.jsonArray ?: return@filter true
+                val hasOurHook = innerHooks.any { h ->
+                    val hObj = h.jsonObject
+                    hObj["type"].toString().trim('"') == "http" &&
+                        hObj["url"].toString().trim('"') == url
+                }
+                !hasOurHook
             }
-            !hasOurHook
         }
+
+        val filteredPerm = filterHooks("PermissionRequest", hookUrl(port))
+        val filteredPtu = filterHooks("PreToolUse", preToolUseUrl(port))
 
         val updatedHooks = buildJsonObject {
             existingHooks.forEach { (key, value) ->
-                if (key != "PermissionRequest") put(key, value)
+                if (key != "PermissionRequest" && key != "PreToolUse") put(key, value)
             }
-            if (filtered.isNotEmpty()) {
-                put("PermissionRequest", Json.encodeToJsonElement(filtered))
+            if (filteredPerm.isNotEmpty()) {
+                put("PermissionRequest", Json.encodeToJsonElement(filteredPerm))
+            }
+            if (filteredPtu.isNotEmpty()) {
+                put("PreToolUse", Json.encodeToJsonElement(filteredPtu))
             }
         }
 
@@ -159,6 +191,6 @@ object HookRegistrar {
         }
 
         file.writeText(json.encodeToString(JsonElement.serializer(), updatedRoot))
-        logger.i { "Unregistered hook for port $port" }
+        logger.i { "Unregistered hooks for port $port" }
     }
 }
