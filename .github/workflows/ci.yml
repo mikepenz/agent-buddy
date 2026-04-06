@@ -55,11 +55,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Collect artifacts
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          mkdir -p artifacts
+          cp composeApp/build/libs/composeApp-jvm.jar artifacts/
+
       - name: Release
         uses: mikepenz/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           body: ${{steps.github_release.outputs.changelog}}
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-b') || contains(github.ref, '-a') }}
+          files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
