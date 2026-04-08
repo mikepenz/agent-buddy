@@ -14,6 +14,8 @@ import com.mikepenz.agentapprover.model.HookInput
 import com.mikepenz.agentapprover.model.RiskAnalysis
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.await
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerialName
@@ -37,6 +39,9 @@ class CopilotRiskAnalyzer(
 
     private val json = Json { ignoreUnknownKeys = true }
     private var client: CopilotClient? = null
+
+    /** Serializes analyze calls — the copilot CLI JSON-RPC pipe cannot handle concurrent sessions. */
+    private val analyzeMutex = Mutex()
 
     /** Optional explicit path to the copilot CLI binary, from settings. */
     var cliPath: String = ""
@@ -70,8 +75,15 @@ class CopilotRiskAnalyzer(
     }
 
     override suspend fun analyze(hookInput: HookInput): Result<RiskAnalysis> = withContext(Dispatchers.IO) {
+        // Serialize requests — the copilot CLI pipe cannot handle concurrent sessions
+        analyzeMutex.withLock {
+            analyzeInternal(hookInput, retried = false)
+        }
+    }
+
+    private suspend fun analyzeInternal(hookInput: HookInput, retried: Boolean): Result<RiskAnalysis> {
         try {
-            withTimeout(TIMEOUT_MS) {
+            return withTimeout(TIMEOUT_MS) {
                 val c = client ?: run {
                     log.w { "CopilotClient not started, starting now" }
                     start()
@@ -105,9 +117,36 @@ class CopilotRiskAnalyzer(
                 }
             }
         } catch (e: Exception) {
+            // If the CLI process died (stream closed / broken pipe), restart and retry once
+            if (!retried && isStreamError(e)) {
+                log.w { "Copilot CLI stream broken, restarting client and retrying..." }
+                restartClient()
+                return analyzeInternal(hookInput, retried = true)
+            }
             log.e(e) { "Analysis failed" }
-            Result.failure(e)
+            return Result.failure(e)
         }
+    }
+
+    /** Detect errors that indicate the underlying CLI process has died. */
+    private fun isStreamError(e: Throwable): Boolean {
+        val message = e.message.orEmpty()
+        if ("Stream closed" in message || "Broken pipe" in message || "Stream Closed" in message) return true
+        // Also check the cause chain
+        val cause = e.cause
+        if (cause != null && cause !== e) return isStreamError(cause)
+        return false
+    }
+
+    /** Stop the broken client and start a fresh one. */
+    private fun restartClient() {
+        try {
+            client?.stop()
+        } catch (e: Exception) {
+            log.w(e) { "Error stopping broken client" }
+        }
+        client = null
+        start()
     }
 
     private fun parseResult(rawContent: String): RiskAnalysis {
