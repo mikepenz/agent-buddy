@@ -30,6 +30,26 @@ Agent Approver acts as a **human-in-the-loop gateway** for AI coding agents like
 - **System Tray** — Runs in the background with badge notifications for pending approvals
 - **Cross-Platform** — macOS, Windows, and Linux with native packaging (DMG, MSI, DEB)
 
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/approval_risk.png" alt="Approval UI with risk analysis" width="280">
+  &nbsp;&nbsp;
+  <img src="screenshots/history.png" alt="History tab" width="280">
+  &nbsp;&nbsp;
+  <img src="screenshots/settings_general.png" alt="General settings" width="280">
+</p>
+<p align="center">
+  <img src="screenshots/settings_integrations.png" alt="Integration settings" width="280">
+  &nbsp;&nbsp;
+  <img src="screenshots/settings_risk_analysis.png" alt="Risk analysis settings" width="280">
+  &nbsp;&nbsp;
+  <img src="screenshots/settings_protections_1.png" alt="Protection engine modules" width="280">
+</p>
+<p align="center">
+  <img src="screenshots/settings_protection_rules.png" alt="Protection rules detail" width="280">
+</p>
+
 ## Installation
 
 ### Download
