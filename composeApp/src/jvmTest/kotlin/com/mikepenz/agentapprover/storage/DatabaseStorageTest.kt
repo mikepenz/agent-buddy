@@ -164,9 +164,9 @@ class DatabaseStorageTest {
         assertEquals(5, storage.count())
         val loaded = storage.loadAll()
         assertEquals(5, loaded.size)
-        // Should keep the newest 5 (ids 4..8)
-        assertEquals("prune-4", loaded.first().request.id)
-        assertEquals("prune-8", loaded.last().request.id)
+        // Should keep the newest 5 (ids 4..8), returned newest-first
+        assertEquals("prune-8", loaded.first().request.id)
+        assertEquals("prune-4", loaded.last().request.id)
     }
 
     @Test

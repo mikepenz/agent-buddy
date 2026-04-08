@@ -131,7 +131,7 @@ class DatabaseStorage(
     fun loadAll(): List<ApprovalResult> {
         val results = mutableListOf<ApprovalResult>()
         connection.createStatement().use { stmt ->
-            stmt.executeQuery("SELECT * FROM history ORDER BY decided_at ASC").use { rs ->
+            stmt.executeQuery("SELECT * FROM history ORDER BY decided_at DESC").use { rs ->
                 while (rs.next()) {
                     results.add(rowToApprovalResult(rs))
                 }
@@ -142,7 +142,7 @@ class DatabaseStorage(
 
     fun loadByType(type: String): List<ApprovalResult> {
         val results = mutableListOf<ApprovalResult>()
-        connection.prepareStatement("SELECT * FROM history WHERE type = ? ORDER BY decided_at ASC").use { ps ->
+        connection.prepareStatement("SELECT * FROM history WHERE type = ? ORDER BY decided_at DESC").use { ps ->
             ps.setString(1, type)
             ps.executeQuery().use { rs ->
                 while (rs.next()) {
