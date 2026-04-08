@@ -12,6 +12,7 @@ import com.github.copilot.sdk.json.SystemMessageConfig
 import java.io.File
 import com.mikepenz.agentapprover.model.HookInput
 import com.mikepenz.agentapprover.model.RiskAnalysis
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.sync.Mutex
@@ -75,66 +76,82 @@ class CopilotRiskAnalyzer(
     }
 
     override suspend fun analyze(hookInput: HookInput): Result<RiskAnalysis> = withContext(Dispatchers.IO) {
-        // Serialize requests — the copilot CLI pipe cannot handle concurrent sessions
-        analyzeMutex.withLock {
-            analyzeInternal(hookInput, retried = false)
+        // Serialize requests — the copilot CLI pipe cannot handle concurrent sessions.
+        // Single outer timeout covers both the initial attempt and a potential retry.
+        try {
+            withTimeout(TIMEOUT_MS) {
+                analyzeMutex.withLock {
+                    analyzeOnce(hookInput, retried = false)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Analysis failed" }
+            Result.failure(e)
         }
     }
 
-    private suspend fun analyzeInternal(hookInput: HookInput, retried: Boolean): Result<RiskAnalysis> {
+    private suspend fun analyzeOnce(hookInput: HookInput, retried: Boolean): Result<RiskAnalysis> {
         try {
-            return withTimeout(TIMEOUT_MS) {
-                val c = client ?: run {
-                    log.w { "CopilotClient not started, starting now" }
-                    start()
-                    client ?: throw RuntimeException("CopilotClient failed to start")
-                }
-
-                val userMessage = RiskMessageBuilder.buildUserMessage(hookInput)
-                log.i { "Analyzing ${hookInput.toolName} with model=$model" }
-
-                val sessionConfig = SessionConfig()
-                    .setModel(model)
-                    .setStreaming(false)
-                    .setTools(emptyList())
-                    .setOnPermissionRequest(PermissionHandler.APPROVE_ALL)
-                    .setSystemMessage(
-                        SystemMessageConfig()
-                            .setMode(SystemMessageMode.REPLACE)
-                            .setContent(effectiveSystemPrompt)
-                    )
-
-                val session = c.createSession(sessionConfig).await()
-                try {
-                    val messageOptions = MessageOptions().setPrompt(userMessage)
-                    val event = session.sendAndWait(messageOptions, SEND_TIMEOUT_MS).await()
-                    val rawContent = event.data?.content
-                        ?: throw RuntimeException("No content in Copilot response")
-                    log.d { "Raw response: ${rawContent.take(200)}" }
-                    Result.success(parseResult(rawContent))
-                } finally {
-                    session.close()
-                }
+            val c = client ?: run {
+                log.w { "CopilotClient not started, starting now" }
+                start()
+                client ?: throw RuntimeException("CopilotClient failed to start")
             }
+
+            val userMessage = RiskMessageBuilder.buildUserMessage(hookInput)
+            log.i { "Analyzing ${hookInput.toolName} with model=$model" }
+
+            val sessionConfig = SessionConfig()
+                .setModel(model)
+                .setStreaming(false)
+                .setTools(emptyList())
+                .setOnPermissionRequest(PermissionHandler.APPROVE_ALL)
+                .setSystemMessage(
+                    SystemMessageConfig()
+                        .setMode(SystemMessageMode.REPLACE)
+                        .setContent(effectiveSystemPrompt)
+                )
+
+            val session = c.createSession(sessionConfig).await()
+            try {
+                val messageOptions = MessageOptions().setPrompt(userMessage)
+                val event = session.sendAndWait(messageOptions, SEND_TIMEOUT_MS).await()
+                val rawContent = event.data?.content
+                    ?: throw RuntimeException("No content in Copilot response")
+                log.d { "Raw response: ${rawContent.take(200)}" }
+                return Result.success(parseResult(rawContent))
+            } finally {
+                session.close()
+            }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // If the CLI process died (stream closed / broken pipe), restart and retry once
             if (!retried && isStreamError(e)) {
                 log.w { "Copilot CLI stream broken, restarting client and retrying..." }
-                restartClient()
-                return analyzeInternal(hookInput, retried = true)
+                val restartResult = runCatching { restartClient() }
+                restartResult.exceptionOrNull()?.let { restartError ->
+                    restartError.addSuppressed(e)
+                    log.e(restartError) { "Failed to restart Copilot client after stream error" }
+                    return Result.failure(restartError)
+                }
+                return analyzeOnce(hookInput, retried = true)
             }
-            log.e(e) { "Analysis failed" }
             return Result.failure(e)
         }
     }
 
     /** Detect errors that indicate the underlying CLI process has died. */
     private fun isStreamError(e: Throwable): Boolean {
-        val message = e.message.orEmpty()
-        if ("Stream closed" in message || "Broken pipe" in message || "Stream Closed" in message) return true
-        // Also check the cause chain
-        val cause = e.cause
-        if (cause != null && cause !== e) return isStreamError(cause)
+        var current: Throwable? = e
+        val visited = mutableSetOf<Throwable>()
+        while (current != null && visited.add(current)) {
+            val msg = current.message.orEmpty().lowercase()
+            if ("stream closed" in msg || "broken pipe" in msg) return true
+            current = current.cause
+        }
         return false
     }
 
