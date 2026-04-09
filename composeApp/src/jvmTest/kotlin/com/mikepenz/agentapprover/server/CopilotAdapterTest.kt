@@ -141,7 +141,7 @@ class CopilotAdapterTest {
                 "hookName": "permissionRequest",
                 "sessionId": "d71c31a6-1907-4551-ab29-036d72da3b83",
                 "timestamp": 1775740932526,
-                "cwd": "/Users/mikepenz/Development/Misc/agent-approver",
+                "cwd": "/home/user/projects/example-app",
                 "toolName": "web_fetch",
                 "toolInput": { "url": "https://www.google.com" },
                 "permissionSuggestions": []
@@ -154,7 +154,7 @@ class CopilotAdapterTest {
         assertEquals("d71c31a6-1907-4551-ab29-036d72da3b83", result.hookInput.sessionId)
         assertEquals("permissionRequest", result.hookInput.hookEventName)
         assertEquals(JsonPrimitive("https://www.google.com"), result.hookInput.toolInput["url"])
-        assertEquals("/Users/mikepenz/Development/Misc/agent-approver", result.hookInput.cwd)
+        assertEquals("/home/user/projects/example-app", result.hookInput.cwd)
         assertEquals(Source.COPILOT, result.source)
     }
 
