@@ -5,6 +5,7 @@ import com.mikepenz.agentapprover.model.RiskAnalysisBackend
 import com.mikepenz.agentapprover.risk.ActiveRiskAnalyzerHolder
 import com.mikepenz.agentapprover.risk.ClaudeCliRiskAnalyzer
 import com.mikepenz.agentapprover.risk.CopilotStateHolder
+import com.mikepenz.agentapprover.risk.OllamaStateHolder
 import com.mikepenz.agentapprover.risk.RiskMessageBuilder
 import com.mikepenz.agentapprover.state.AppStateManager
 import kotlinx.coroutines.CoroutineScope
@@ -36,7 +37,7 @@ class RiskAnalyzerLifecycleTest {
         val claude = ClaudeCliRiskAnalyzer()
         val holder = ActiveRiskAnalyzerHolder()
         val copilotState = CopilotStateHolder()
-        val lifecycle = RiskAnalyzerLifecycle(state, claude, holder, copilotState, env(this))
+        val lifecycle = RiskAnalyzerLifecycle(state, claude, holder, copilotState, OllamaStateHolder(), env(this))
 
         lifecycle.start()
         runCurrent()
@@ -54,6 +55,7 @@ class RiskAnalyzerLifecycleTest {
             claude,
             ActiveRiskAnalyzerHolder(),
             CopilotStateHolder(),
+            OllamaStateHolder(),
             env(this),
         )
 
@@ -84,6 +86,7 @@ class RiskAnalyzerLifecycleTest {
             claude,
             ActiveRiskAnalyzerHolder(),
             CopilotStateHolder(),
+            OllamaStateHolder(),
             env(this),
         )
 
@@ -108,6 +111,7 @@ class RiskAnalyzerLifecycleTest {
             claude,
             holder,
             CopilotStateHolder(),
+            OllamaStateHolder(),
             env(this),
         )
 
@@ -130,6 +134,7 @@ class RiskAnalyzerLifecycleTest {
             ClaudeCliRiskAnalyzer(),
             ActiveRiskAnalyzerHolder(),
             CopilotStateHolder(),
+            OllamaStateHolder(),
             env(this),
         )
         // Calling shutdown without starting must not throw and must be idempotent.

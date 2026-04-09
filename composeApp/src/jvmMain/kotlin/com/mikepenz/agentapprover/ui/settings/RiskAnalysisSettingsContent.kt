@@ -42,13 +42,32 @@ import androidx.compose.ui.unit.sp
 import com.mikepenz.agentapprover.model.AppSettings
 import com.mikepenz.agentapprover.model.RiskAnalysisBackend
 import com.mikepenz.agentapprover.risk.CopilotInitState
+import com.mikepenz.agentapprover.risk.OllamaInitState
 import com.mikepenz.agentapprover.risk.RiskMessageBuilder
+
+/**
+ * Open [url] in the user's default browser, no-op on platforms or headless
+ * environments where AWT Desktop is unavailable. Swallows exceptions so a
+ * failed browser launch never crashes the settings tab.
+ */
+private fun openBrowserSafely(url: String) {
+    try {
+        if (!java.awt.Desktop.isDesktopSupported()) return
+        val desktop = java.awt.Desktop.getDesktop()
+        if (!desktop.isSupported(java.awt.Desktop.Action.BROWSE)) return
+        desktop.browse(java.net.URI(url))
+    } catch (_: Exception) {
+        // Best-effort: do not crash the settings screen if the browser launch fails.
+    }
+}
 
 @Composable
 fun RiskAnalysisSettingsContent(
     settings: AppSettings,
     copilotModels: List<Pair<String, String>>,
     copilotInitState: CopilotInitState = CopilotInitState.IDLE,
+    ollamaModels: List<String> = emptyList(),
+    ollamaInitState: OllamaInitState = OllamaInitState.IDLE,
     onSettingsChange: (AppSettings) -> Unit,
 ) {
     Column(
@@ -83,6 +102,7 @@ fun RiskAnalysisSettingsContent(
                             when (backend) {
                                 RiskAnalysisBackend.CLAUDE -> "Claude"
                                 RiskAnalysisBackend.COPILOT -> "Copilot"
+                                RiskAnalysisBackend.OLLAMA -> "Ollama"
                             },
                             fontSize = 12.sp,
                         )
@@ -110,6 +130,45 @@ fun RiskAnalysisSettingsContent(
                             Text(model.replaceFirstChar { it.uppercase() }, fontSize = 12.sp)
                         }
                     }
+                }
+            } else if (settings.riskAnalysisBackend == RiskAnalysisBackend.OLLAMA) {
+                if (ollamaModels.isNotEmpty() && ollamaInitState == OllamaInitState.READY) {
+                    var expanded by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { expanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = settings.riskAnalysisEnabled,
+                        ) {
+                            Text(settings.riskAnalysisOllamaModel, fontSize = 12.sp, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
+                            Text("\u25BE", fontSize = 12.sp)
+                        }
+                        DropdownMenu(
+                            expanded = expanded,
+                            onDismissRequest = { expanded = false },
+                        ) {
+                            ollamaModels.forEach { name ->
+                                DropdownMenuItem(
+                                    text = { Text(name, fontSize = 12.sp) },
+                                    onClick = {
+                                        onSettingsChange(settings.copy(riskAnalysisOllamaModel = name))
+                                        expanded = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Free-text fallback when daemon offline so user can still type a model name and retry.
+                    OutlinedTextField(
+                        value = settings.riskAnalysisOllamaModel,
+                        onValueChange = { onSettingsChange(settings.copy(riskAnalysisOllamaModel = it)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("e.g. llama3.2", fontSize = 12.sp) },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        singleLine = true,
+                        enabled = settings.riskAnalysisEnabled,
+                    )
                 }
             } else {
                 val models = copilotModels.ifEmpty {
@@ -250,6 +309,49 @@ fun RiskAnalysisSettingsContent(
                             textStyle = MaterialTheme.typography.bodySmall,
                             singleLine = true,
                         )
+                    }
+                }
+            }
+        }
+
+        // Ollama config section
+        AnimatedVisibility(visible = settings.riskAnalysisBackend == RiskAnalysisBackend.OLLAMA && settings.riskAnalysisEnabled) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Ollama", style = MaterialTheme.typography.titleSmall)
+                        when (ollamaInitState) {
+                            OllamaInitState.LOADING -> {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                Text("Connecting...", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            OllamaInitState.READY -> StatusBadge(text = "Connected", color = Color(0xFF4CAF50))
+                            OllamaInitState.ERROR -> StatusBadge(text = "Offline", color = Color(0xFFF44336))
+                            OllamaInitState.IDLE -> {}
+                        }
+                    }
+                    OutlinedTextField(
+                        value = settings.riskAnalysisOllamaUrl,
+                        onValueChange = { onSettingsChange(settings.copy(riskAnalysisOllamaUrl = it)) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Base URL", fontSize = 12.sp) },
+                        placeholder = { Text("http://localhost:11434", fontSize = 12.sp) },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        singleLine = true,
+                    )
+                    Text(
+                        "Install Ollama from ollama.com, then run `ollama pull llama3.2` (qwen2.5, mistral-nemo also work well).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(
+                        onClick = { openBrowserSafely("https://ollama.com/download") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Download Ollama", fontSize = 12.sp)
                     }
                 }
             }

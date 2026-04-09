@@ -11,6 +11,8 @@ import com.mikepenz.agentapprover.protection.ProtectionEngine
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.risk.CopilotInitState
 import com.mikepenz.agentapprover.risk.CopilotStateHolder
+import com.mikepenz.agentapprover.risk.OllamaInitState
+import com.mikepenz.agentapprover.risk.OllamaStateHolder
 import com.mikepenz.agentapprover.state.AppStateManager
 import dev.zacsweers.metro.ContributesIntoMap
 import dev.zacsweers.metro.Inject
@@ -51,6 +53,7 @@ class SettingsViewModel(
     private val stateManager: AppStateManager,
     private val copilotBridge: CopilotBridge,
     private val copilotStateHolder: CopilotStateHolder,
+    private val ollamaStateHolder: OllamaStateHolder,
     protectionEngine: ProtectionEngine,
     private val hookRegistry: HookRegistry,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
@@ -94,20 +97,30 @@ class SettingsViewModel(
      */
     private val inFlightCopilotQueries = mutableSetOf<String>()
 
+    /** Pre-combined Copilot lifecycle state to keep the main `combine` arity reasonable. */
+    private val copilotState: kotlinx.coroutines.flow.Flow<Pair<List<Pair<String, String>>, CopilotInitState>> =
+        combine(copilotStateHolder.models, copilotStateHolder.initState) { models, state -> models to state }
+
+    /** Pre-combined Ollama lifecycle state, same reason. */
+    private val ollamaState: kotlinx.coroutines.flow.Flow<Pair<List<String>, OllamaInitState>> =
+        combine(ollamaStateHolder.models, ollamaStateHolder.initState) { models, state -> models to state }
+
     val uiState: StateFlow<SettingsUiState> = combine(
         stateManager.state,
         isHookRegistered,
         isCopilotInstalled,
-        copilotStateHolder.models,
-        copilotStateHolder.initState,
-    ) { state, hookRegistered, copilotInstalled, copilotModels, copilotInitState ->
+        copilotState,
+        ollamaState,
+    ) { state, hookRegistered, copilotInstalled, copilot, ollama ->
         SettingsUiState(
             settings = state.settings,
             historyCount = state.history.size,
             isHookRegistered = hookRegistered,
             isCopilotInstalled = copilotInstalled,
-            copilotModels = copilotModels,
-            copilotInitState = copilotInitState,
+            copilotModels = copilot.first,
+            copilotInitState = copilot.second,
+            ollamaModels = ollama.first,
+            ollamaInitState = ollama.second,
         )
     }.stateIn(
         viewModelScope,
@@ -119,6 +132,8 @@ class SettingsViewModel(
             isCopilotInstalled = false,
             copilotModels = copilotStateHolder.models.value,
             copilotInitState = copilotStateHolder.initState.value,
+            ollamaModels = ollamaStateHolder.models.value,
+            ollamaInitState = ollamaStateHolder.initState.value,
         ),
     )
 
@@ -248,4 +263,6 @@ data class SettingsUiState(
     val isCopilotInstalled: Boolean,
     val copilotModels: List<Pair<String, String>>,
     val copilotInitState: CopilotInitState,
+    val ollamaModels: List<String> = emptyList(),
+    val ollamaInitState: OllamaInitState = OllamaInitState.IDLE,
 )
