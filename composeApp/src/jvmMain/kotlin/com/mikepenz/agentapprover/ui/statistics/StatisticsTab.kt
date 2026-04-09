@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -246,15 +247,15 @@ private fun SourceBreakdown(label: String, total: Int, entries: List<Pair<Decisi
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 14.dp, bottom = 2.dp)
+                    .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .size(width = 0.dp, height = 4.dp),
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(count.toFloat() / total.toFloat())
-                        .background(decisionGroupColor(group))
-                        .size(width = 0.dp, height = 4.dp),
+                        .height(4.dp)
+                        .background(decisionGroupColor(group)),
                 )
             }
         }
@@ -329,15 +330,15 @@ private fun ProtectionList(hits: List<ProtectionHitCount>) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 1.dp, bottom = 2.dp)
+                        .height(4.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .size(width = 0.dp, height = 4.dp),
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(hit.count.toFloat() / max.toFloat())
-                            .background(MaterialTheme.colorScheme.secondary)
-                            .size(width = 0.dp, height = 4.dp),
+                            .height(4.dp)
+                            .background(MaterialTheme.colorScheme.secondary),
                     )
                 }
             }

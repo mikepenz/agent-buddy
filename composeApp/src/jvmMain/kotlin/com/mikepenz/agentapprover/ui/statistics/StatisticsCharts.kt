@@ -76,14 +76,22 @@ fun DailyDecisionsChart(daily: List<DailyCount>, modifier: Modifier = Modifier) 
     val colors = DAILY_STACK_ORDER.map { decisionGroupColor(it) }
 
     LaunchedEffect(daily) {
+        // Always run a transaction so a non-empty → empty transition clears the
+        // chart. Skipping the transaction would leave stale series rendered.
         modelProducer.runTransaction {
-            if (daily.isNotEmpty()) {
-                columnSeries {
+            columnSeries {
+                if (daily.isNotEmpty()) {
                     DAILY_STACK_ORDER.forEach { group ->
                         series(daily.map { it.byGroup[group] ?: 0 })
                     }
                 }
-                extras { it[DailyLabelKey] = daily.map { d -> d.date.toString().substring(5) } }
+            }
+            extras {
+                it[DailyLabelKey] = if (daily.isNotEmpty()) {
+                    daily.map { d -> d.date.toString().substring(5) }
+                } else {
+                    emptyList()
+                }
             }
         }
     }

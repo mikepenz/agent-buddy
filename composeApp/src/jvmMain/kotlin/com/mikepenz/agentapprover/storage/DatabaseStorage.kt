@@ -21,6 +21,14 @@ open class DatabaseStorage(
     private val logger = Logger.withTag("DatabaseStorage")
     private val connection: Connection
 
+    /**
+     * Serializes ALL access to the shared JDBC [connection]. SQLite JDBC connections
+     * are not thread-safe, and stats queries now run on `Dispatchers.IO` while writes
+     * may originate from coroutine resolves on a different thread. Every public method
+     * that touches `connection` must hold this lock.
+     */
+    private val connectionLock = Any()
+
     private val json = Json {
         ignoreUnknownKeys = true
         prettyPrint = true
@@ -89,7 +97,7 @@ open class DatabaseStorage(
         return false
     }
 
-    open fun insert(result: ApprovalResult) {
+    open fun insert(result: ApprovalResult): Unit = synchronized(connectionLock) {
         val type = if (result.protectionModule != null) "protection" else "approval"
         val sql = """
             INSERT OR REPLACE INTO history (
@@ -153,7 +161,7 @@ open class DatabaseStorage(
         }
     }
 
-    fun loadAll(): List<ApprovalResult> {
+    fun loadAll(): List<ApprovalResult> = synchronized(connectionLock) {
         val results = mutableListOf<ApprovalResult>()
         connection.createStatement().use { stmt ->
             stmt.executeQuery("SELECT * FROM history ORDER BY decided_at DESC").use { rs ->
@@ -162,10 +170,10 @@ open class DatabaseStorage(
                 }
             }
         }
-        return results
+        results
     }
 
-    fun loadByType(type: String): List<ApprovalResult> {
+    fun loadByType(type: String): List<ApprovalResult> = synchronized(connectionLock) {
         val results = mutableListOf<ApprovalResult>()
         connection.prepareStatement("SELECT * FROM history WHERE type = ? ORDER BY decided_at DESC").use { ps ->
             ps.setString(1, type)
@@ -175,10 +183,10 @@ open class DatabaseStorage(
                 }
             }
         }
-        return results
+        results
     }
 
-    fun updateRawResponse(requestId: String, rawResponseJson: String) {
+    fun updateRawResponse(requestId: String, rawResponseJson: String): Unit = synchronized(connectionLock) {
         connection.prepareStatement("UPDATE history SET raw_response_json = ? WHERE id = ?").use { ps ->
             ps.setString(1, rawResponseJson)
             ps.setString(2, requestId)
@@ -186,17 +194,17 @@ open class DatabaseStorage(
         }
     }
 
-    fun clearAll() {
+    fun clearAll(): Unit = synchronized(connectionLock) {
         connection.createStatement().use { stmt ->
             stmt.executeUpdate("DELETE FROM history")
         }
     }
 
-    fun count(): Int {
+    fun count(): Int = synchronized(connectionLock) {
         connection.createStatement().use { stmt ->
             stmt.executeQuery("SELECT COUNT(*) FROM history").use { rs ->
                 rs.next()
-                return rs.getInt(1)
+                rs.getInt(1)
             }
         }
     }
@@ -211,7 +219,7 @@ open class DatabaseStorage(
      *
      * @param since lower bound on `decided_at` (inclusive); pass `null` for all-time.
      */
-    fun queryStats(since: Instant?): StatsSummary {
+    fun queryStats(since: Instant?): StatsSummary = synchronized(connectionLock) {
         val sinceClause = if (since != null) "WHERE decided_at >= ?" else ""
         fun bindSince(ps: java.sql.PreparedStatement, startIndex: Int = 1) {
             if (since != null) ps.setString(startIndex, since.toString())
@@ -313,7 +321,7 @@ open class DatabaseStorage(
             }
         }
 
-        return StatsSummary(
+        StatsSummary(
             totalDecisions = total,
             byGroup = byGroup,
             perDay = perDay,
@@ -333,13 +341,16 @@ open class DatabaseStorage(
     }
 
     private fun List<Double>.percentile(p: Double): Double {
-        // Nearest-rank percentile on a pre-sorted list.
+        // Nearest-rank percentile on a pre-sorted list. The rank is `ceil(p * N)`,
+        // converted to a 0-based index by subtracting 1. For N=4 at p50 this yields
+        // rank=2 → index 1 (the second-smallest sample), matching the standard
+        // nearest-rank definition.
         if (isEmpty()) return 0.0
-        val rank = (p * size).toInt().coerceIn(0, size - 1)
-        return this[rank]
+        val rank = kotlin.math.ceil(p * size).toInt().coerceIn(1, size)
+        return this[rank - 1]
     }
 
-    fun close() {
+    fun close(): Unit = synchronized(connectionLock) {
         try {
             if (!connection.isClosed) {
                 connection.close()
@@ -349,7 +360,7 @@ open class DatabaseStorage(
         }
     }
 
-    fun migrateFromJson(dataDir: String) {
+    fun migrateFromJson(dataDir: String): Unit = synchronized(connectionLock) {
         val historyFile = File(dataDir, "history.json")
         if (!historyFile.exists()) {
             logger.i { "No history.json found, skipping migration" }

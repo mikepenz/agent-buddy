@@ -59,10 +59,14 @@ class StatisticsViewModel(
     init {
         refresh()
         // Re-query when the in-memory history changes (a new decision landed).
+        // Tracks the latest decided_at + first id rather than `history.size`,
+        // because once history reaches `maxHistoryEntries` the size stops growing
+        // even though new decisions keep replacing older ones — using `size`
+        // would silently freeze auto-refresh after the cap is hit.
         // Debounced so a burst of resolutions doesn't trigger a query each time.
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         stateManager.state
-            .map { it.history.size }
+            .map { state -> state.history.firstOrNull()?.let { it.request.id to it.decidedAt } }
             .distinctUntilChanged()
             .debounce(500)
             .onEach { refresh() }
@@ -79,10 +83,19 @@ class StatisticsViewModel(
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true)
-            val window = _uiState.value.window
-            val since: Instant? = window.sinceOffset?.let { Clock.System.now() - it }
-            val summary = withContext(Dispatchers.IO) { databaseStorage.queryStats(since) }
-            _uiState.value = _uiState.value.copy(summary = summary, loading = false)
+            try {
+                val window = _uiState.value.window
+                val since: Instant? = window.sinceOffset?.let { Clock.System.now() - it }
+                val summary = withContext(Dispatchers.IO) { databaseStorage.queryStats(since) }
+                _uiState.value = _uiState.value.copy(summary = summary)
+            } catch (e: Exception) {
+                // Don't let SQLite errors (busy/IO) propagate up and tear down the
+                // ViewModel scope. Stale summary stays visible until the next refresh.
+                co.touchlab.kermit.Logger.withTag("StatisticsViewModel")
+                    .w(e) { "queryStats failed: ${e.message}" }
+            } finally {
+                _uiState.value = _uiState.value.copy(loading = false)
+            }
         }
     }
 }

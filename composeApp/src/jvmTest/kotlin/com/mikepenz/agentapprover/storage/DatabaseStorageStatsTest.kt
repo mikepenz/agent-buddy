@@ -10,8 +10,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.math.roundToLong
 import kotlin.time.Duration.Companion.days
-import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Duration.Companion.milliseconds
 
 class DatabaseStorageStatsTest {
 
@@ -41,7 +42,9 @@ class DatabaseStorageStatsTest {
         protectionRule: String? = null,
     ): ApprovalResult {
         val decided = now - decidedAtOffsetDays.days
-        val requested = decided - latencySeconds.toLong().seconds
+        // Use millisecond precision so sub-second latencies (e.g., 0.5s) survive
+        // and exercise the `<1s` histogram bucket as intended.
+        val requested = decided - (latencySeconds * 1000).roundToLong().milliseconds
         return ApprovalResult(
             request = ApprovalRequest(
                 id = id,
