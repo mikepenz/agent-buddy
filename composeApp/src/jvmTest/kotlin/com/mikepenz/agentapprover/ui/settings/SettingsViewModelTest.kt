@@ -8,6 +8,7 @@ import com.mikepenz.agentapprover.model.ProtectionSettings
 import com.mikepenz.agentapprover.protection.ProtectionEngine
 import com.mikepenz.agentapprover.risk.CopilotInitState
 import com.mikepenz.agentapprover.risk.CopilotStateHolder
+import com.mikepenz.agentapprover.risk.OllamaStateHolder
 import com.mikepenz.agentapprover.state.AppStateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -84,6 +85,7 @@ class SettingsViewModelTest {
         bridge: FakeCopilotBridge = FakeCopilotBridge(),
         registry: FakeHookRegistry = FakeHookRegistry(),
         copilotState: CopilotStateHolder = CopilotStateHolder(),
+        ollamaState: OllamaStateHolder = OllamaStateHolder(),
     ): Triple<SettingsViewModel, AppStateManager, FakeHookRegistry> {
         val state = AppStateManager()
         val engine = ProtectionEngine(modules = emptyList(), settingsProvider = { ProtectionSettings() })
@@ -91,6 +93,7 @@ class SettingsViewModelTest {
             stateManager = state,
             copilotBridge = bridge,
             copilotStateHolder = copilotState,
+            ollamaStateHolder = ollamaState,
             protectionEngine = engine,
             hookRegistry = registry,
             ioDispatcher = mainDispatcher, // run "IO" on the test dispatcher so runCurrent advances it
@@ -199,6 +202,7 @@ class SettingsViewModelTest {
             stateManager = state,
             copilotBridge = countingBridge,
             copilotStateHolder = CopilotStateHolder(),
+            ollamaStateHolder = OllamaStateHolder(),
             protectionEngine = engine,
             hookRegistry = FakeHookRegistry(),
             ioDispatcher = mainDispatcher,

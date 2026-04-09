@@ -7,6 +7,7 @@ import com.mikepenz.agentapprover.protection.ProtectionEngine
 import com.mikepenz.agentapprover.risk.ActiveRiskAnalyzerHolder
 import com.mikepenz.agentapprover.risk.ClaudeCliRiskAnalyzer
 import com.mikepenz.agentapprover.risk.CopilotStateHolder
+import com.mikepenz.agentapprover.risk.OllamaStateHolder
 import com.mikepenz.agentapprover.state.AppStateManager
 import com.mikepenz.agentapprover.storage.DatabaseStorage
 import com.mikepenz.agentapprover.storage.SettingsStorage
@@ -36,6 +37,7 @@ interface AppGraph : ViewModelGraph {
     val claudeAnalyzer: ClaudeCliRiskAnalyzer
     val activeRiskAnalyzerHolder: ActiveRiskAnalyzerHolder
     val copilotStateHolder: CopilotStateHolder
+    val ollamaStateHolder: OllamaStateHolder
     val trayManager: TrayManager
     val riskAnalyzerLifecycle: RiskAnalyzerLifecycle
     val approvalServerRunner: ApprovalServerRunner

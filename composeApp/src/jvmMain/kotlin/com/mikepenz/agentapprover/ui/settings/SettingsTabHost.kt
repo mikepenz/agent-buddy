@@ -26,6 +26,8 @@ fun SettingsTabHost(onShowLicenses: () -> Unit) {
         historyCount = ui.historyCount,
         copilotModels = ui.copilotModels,
         copilotInitState = ui.copilotInitState,
+        ollamaModels = ui.ollamaModels,
+        ollamaInitState = ui.ollamaInitState,
         onSettingsChange = viewModel::updateSettings,
         onRegisterHook = viewModel::registerHook,
         onUnregisterHook = viewModel::unregisterHook,

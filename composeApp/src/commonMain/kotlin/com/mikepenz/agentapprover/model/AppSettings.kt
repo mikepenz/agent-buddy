@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
 @Serializable
-enum class RiskAnalysisBackend { CLAUDE, COPILOT }
+enum class RiskAnalysisBackend { CLAUDE, COPILOT, OLLAMA }
 
 @Serializable
 data class AppSettings(
@@ -20,6 +20,8 @@ data class AppSettings(
     val riskAnalysisModel: String = "haiku",
     val riskAnalysisCopilotModel: String = "gpt-4.1-mini",
     val riskAnalysisCopilotCliPath: String = "",
+    val riskAnalysisOllamaUrl: String = "http://localhost:11434",
+    val riskAnalysisOllamaModel: String = "llama3.2",
     val riskAnalysisCustomPrompt: String = "",
     val autoApproveRisk1: Boolean = false,
     val autoDenyRisk5: Boolean = false,

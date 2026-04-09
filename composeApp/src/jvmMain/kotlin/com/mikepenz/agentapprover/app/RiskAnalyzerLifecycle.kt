@@ -10,6 +10,9 @@ import com.mikepenz.agentapprover.risk.ClaudeCliRiskAnalyzer
 import com.mikepenz.agentapprover.risk.CopilotInitState
 import com.mikepenz.agentapprover.risk.CopilotRiskAnalyzer
 import com.mikepenz.agentapprover.risk.CopilotStateHolder
+import com.mikepenz.agentapprover.risk.OllamaInitState
+import com.mikepenz.agentapprover.risk.OllamaRiskAnalyzer
+import com.mikepenz.agentapprover.risk.OllamaStateHolder
 import com.mikepenz.agentapprover.risk.RiskMessageBuilder
 import com.mikepenz.agentapprover.state.AppStateManager
 import dev.zacsweers.metro.Inject
@@ -39,11 +42,13 @@ class RiskAnalyzerLifecycle(
     private val claudeAnalyzer: ClaudeCliRiskAnalyzer,
     private val activeAnalyzerHolder: ActiveRiskAnalyzerHolder,
     private val copilotStateHolder: CopilotStateHolder,
+    private val ollamaStateHolder: OllamaStateHolder,
     private val environment: AppEnvironment,
 ) {
     private val log = Logger.withTag("RiskAnalyzerLifecycle")
 
     private var copilotAnalyzer: CopilotRiskAnalyzer? = null
+    private var ollamaAnalyzer: OllamaRiskAnalyzer? = null
     private var collectorJob: Job? = null
 
     /**
@@ -67,7 +72,9 @@ class RiskAnalyzerLifecycle(
                         old.riskAnalysisModel == new.riskAnalysisModel &&
                         old.riskAnalysisCopilotModel == new.riskAnalysisCopilotModel &&
                         old.riskAnalysisCustomPrompt == new.riskAnalysisCustomPrompt &&
-                        old.riskAnalysisCopilotCliPath == new.riskAnalysisCopilotCliPath
+                        old.riskAnalysisCopilotCliPath == new.riskAnalysisCopilotCliPath &&
+                        old.riskAnalysisOllamaUrl == new.riskAnalysisOllamaUrl &&
+                        old.riskAnalysisOllamaModel == new.riskAnalysisOllamaModel
                 }
                 .collect { settings -> applySettings(settings) }
         }
@@ -85,11 +92,61 @@ class RiskAnalyzerLifecycle(
 
         when (settings.riskAnalysisBackend) {
             RiskAnalysisBackend.COPILOT -> activateCopilot(settings, effectivePrompt)
+            RiskAnalysisBackend.OLLAMA -> activateOllama(settings, effectivePrompt)
             RiskAnalysisBackend.CLAUDE -> activateClaude()
         }
     }
 
+    private suspend fun activateOllama(settings: AppSettings, effectivePrompt: String) {
+        // Tear down Copilot if it was previously active.
+        copilotAnalyzer?.shutdown()
+        copilotAnalyzer = null
+        copilotStateHolder.setInitState(CopilotInitState.IDLE)
+
+        var analyzer = ollamaAnalyzer
+        val urlChanged = analyzer != null && analyzer.baseUrl != settings.riskAnalysisOllamaUrl.trimEnd('/')
+        if (urlChanged) {
+            // Recreate to pick up the new base URL — start() re-probes /api/tags.
+            analyzer.shutdown()
+            analyzer = null
+            ollamaAnalyzer = null
+        }
+        if (analyzer == null) {
+            ollamaStateHolder.setInitState(OllamaInitState.LOADING)
+            analyzer = OllamaRiskAnalyzer(
+                baseUrl = settings.riskAnalysisOllamaUrl,
+                model = settings.riskAnalysisOllamaModel,
+                customSystemPrompt = settings.riskAnalysisCustomPrompt,
+            )
+            try {
+                analyzer.start()
+                ollamaAnalyzer = analyzer
+                analyzer.listModels().onSuccess { models ->
+                    ollamaStateHolder.setModels(models)
+                }
+                ollamaStateHolder.setInitState(OllamaInitState.READY)
+            } catch (e: Exception) {
+                log.e(e) { "Failed to start Ollama analyzer" }
+                ollamaStateHolder.setInitState(OllamaInitState.ERROR)
+                // Keep the analyzer around so the user can retry once the daemon is up.
+                ollamaAnalyzer = analyzer
+                activeAnalyzerHolder.set(analyzer)
+                analyzer.model = settings.riskAnalysisOllamaModel
+                analyzer.systemPrompt = effectivePrompt
+                return
+            }
+        }
+        analyzer.model = settings.riskAnalysisOllamaModel
+        analyzer.systemPrompt = effectivePrompt
+        activeAnalyzerHolder.set(analyzer)
+    }
+
     private suspend fun activateCopilot(settings: AppSettings, effectivePrompt: String) {
+        // Tear down Ollama if it was previously active.
+        ollamaAnalyzer?.shutdown()
+        ollamaAnalyzer = null
+        ollamaStateHolder.setInitState(OllamaInitState.IDLE)
+
         var analyzer = copilotAnalyzer
         if (analyzer == null) {
             copilotStateHolder.setInitState(CopilotInitState.LOADING)
@@ -122,6 +179,9 @@ class RiskAnalyzerLifecycle(
         copilotAnalyzer?.shutdown()
         copilotAnalyzer = null
         copilotStateHolder.setInitState(CopilotInitState.IDLE)
+        ollamaAnalyzer?.shutdown()
+        ollamaAnalyzer = null
+        ollamaStateHolder.setInitState(OllamaInitState.IDLE)
         activeAnalyzerHolder.set(claudeAnalyzer)
     }
 
@@ -134,5 +194,7 @@ class RiskAnalyzerLifecycle(
         collectorJob = null
         copilotAnalyzer?.shutdown()
         copilotAnalyzer = null
+        ollamaAnalyzer?.shutdown()
+        ollamaAnalyzer = null
     }
 }

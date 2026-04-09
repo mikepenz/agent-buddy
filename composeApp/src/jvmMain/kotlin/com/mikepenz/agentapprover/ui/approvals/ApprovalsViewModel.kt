@@ -153,6 +153,7 @@ class ApprovalsViewModel(
             _uiState.update { ui ->
                 val message = when {
                     error.message?.contains("CLI not found") == true -> "CLI not found"
+                    error.message?.contains("Ollama not reachable") == true -> "Ollama offline"
                     error.message?.contains("timed out") == true -> "Timeout"
                     else -> "Error"
                 }
