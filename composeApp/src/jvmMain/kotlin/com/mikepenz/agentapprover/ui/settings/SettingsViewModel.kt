@@ -17,6 +17,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +43,7 @@ import kotlinx.coroutines.withContext
  * are dispatched to [ioDispatcher] (defaults to [Dispatchers.IO]) to keep the
  * main thread free at startup and on settings changes.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @Inject
 @ViewModelKey
 @ContributesIntoMap(AppScope::class)
@@ -53,6 +55,16 @@ class SettingsViewModel(
     private val hookRegistry: HookRegistry,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
+
+    /**
+     * Single-slot dispatcher derived from [ioDispatcher]. All write actions
+     * (settings updates, hook register/unregister, copilot install/uninstall,
+     * clearHistory) launch on this so concurrent calls drain in FIFO order
+     * — preserving the user's intent when they click two settings rapidly.
+     * Reads (the cache populator and the init poll) use the unrestricted
+     * [ioDispatcher] so they can run in parallel.
+     */
+    private val writeDispatcher = ioDispatcher.limitedParallelism(1)
 
     val protectionModules: List<ProtectionModule> = protectionEngine.modules
 
@@ -72,6 +84,15 @@ class SettingsViewModel(
      */
     private val _copilotHookRegistrations = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val copilotHookRegistrations: StateFlow<Map<String, Boolean>> = _copilotHookRegistrations.asStateFlow()
+
+    /**
+     * Set of project paths whose Copilot hook status is currently being read
+     * from disk. Used to dedupe [queryCopilotHookRegistered] so the host
+     * composable can call it from inside the cache lookup lambda on every
+     * recomposition without spamming the IO dispatcher. Synchronised on
+     * itself; reads/writes are infrequent and short.
+     */
+    private val inFlightCopilotQueries = mutableSetOf<String>()
 
     val uiState: StateFlow<SettingsUiState> = combine(
         stateManager.state,
@@ -127,22 +148,20 @@ class SettingsViewModel(
     }
 
     fun updateSettings(settings: AppSettings) {
-        // AppStateManager.updateSettings persists to disk synchronously, so
-        // dispatch onto IO to avoid blocking the UI thread on every change.
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             stateManager.updateSettings(settings)
         }
     }
 
     fun updateProtectionSettings(protectionSettings: ProtectionSettings) {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             val current = stateManager.state.value.settings
             stateManager.updateSettings(current.copy(protectionSettings = protectionSettings))
         }
     }
 
     fun registerHook() {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             val port = stateManager.state.value.settings.serverPort
             hookRegistry.register(port)
             isHookRegistered.value = hookRegistry.isRegistered(port)
@@ -150,7 +169,7 @@ class SettingsViewModel(
     }
 
     fun unregisterHook() {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             val port = stateManager.state.value.settings.serverPort
             hookRegistry.unregister(port)
             isHookRegistered.value = hookRegistry.isRegistered(port)
@@ -158,21 +177,21 @@ class SettingsViewModel(
     }
 
     fun installCopilot() {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             copilotBridge.install()
             isCopilotInstalled.value = copilotBridge.isInstalled()
         }
     }
 
     fun uninstallCopilot() {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             copilotBridge.uninstall()
             isCopilotInstalled.value = copilotBridge.isInstalled()
         }
     }
 
     fun registerCopilotHook(projectPath: String) {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             copilotBridge.registerHook(projectPath)
             // Refresh the cache from disk so the UI reflects the new state.
             val now = copilotBridge.isHookRegistered(projectPath)
@@ -181,7 +200,7 @@ class SettingsViewModel(
     }
 
     fun unregisterCopilotHook(projectPath: String) {
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             copilotBridge.unregisterHook(projectPath)
             val now = copilotBridge.isHookRegistered(projectPath)
             _copilotHookRegistrations.update { it + (projectPath to now) }
@@ -192,21 +211,27 @@ class SettingsViewModel(
      * Trigger an asynchronous refresh of the cached registration status for
      * [projectPath]. The result lands in [copilotHookRegistrations]. Safe to
      * call from inside Compose composition — it just enqueues a coroutine and
-     * returns. Subsequent calls for the same path while one is in flight are
-     * idempotent (the result simply overwrites the cache).
+     * returns immediately. Calls for the same path while one is already in
+     * flight are dropped, so per-recomposition spam doesn't trigger duplicate
+     * disk reads.
      */
     fun queryCopilotHookRegistered(projectPath: String) {
         if (projectPath.isBlank()) return
+        synchronized(inFlightCopilotQueries) {
+            if (!inFlightCopilotQueries.add(projectPath)) return
+        }
         viewModelScope.launch(ioDispatcher) {
-            val registered = copilotBridge.isHookRegistered(projectPath)
-            _copilotHookRegistrations.update { it + (projectPath to registered) }
+            try {
+                val registered = copilotBridge.isHookRegistered(projectPath)
+                _copilotHookRegistrations.update { it + (projectPath to registered) }
+            } finally {
+                synchronized(inFlightCopilotQueries) { inFlightCopilotQueries.remove(projectPath) }
+            }
         }
     }
 
     fun clearHistory() {
-        // AppStateManager.clearHistory does a synchronous DB delete; dispatch
-        // to IO so the UI doesn't stall.
-        viewModelScope.launch(ioDispatcher) {
+        viewModelScope.launch(writeDispatcher) {
             stateManager.clearHistory()
         }
     }

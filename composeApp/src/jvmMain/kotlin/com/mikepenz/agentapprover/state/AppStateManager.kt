@@ -30,6 +30,15 @@ class AppStateManager(
     private val pendingDeferreds = mutableMapOf<String, CompletableDeferred<ApprovalResult>>()
     private val pendingUpdatedInputs = mutableMapOf<String, Map<String, JsonElement>>()
 
+    /**
+     * Lock guarding disk writes (settings + database). The in-memory state
+     * update via [MutableStateFlow.update] is already atomic, but two
+     * concurrent callers can race at the disk-write step and corrupt the
+     * persisted file by writing in the wrong order. Holding this monitor
+     * around the persistence call serialises writes from any thread.
+     */
+    private val persistLock = Any()
+
     fun initialize() {
         val settings = settingsStorage?.load() ?: AppSettings()
         val history = databaseStorage?.loadAll() ?: emptyList()
@@ -56,26 +65,32 @@ class AppStateManager(
         if (updatedInput != null) {
             pendingUpdatedInputs[requestId] = updatedInput
         }
-        _state.update { current ->
-            val request = current.pendingApprovals.find { it.id == requestId } ?: return@update current
-            val result = ApprovalResult(
-                request = request,
-                decision = decision,
-                feedback = feedback,
-                riskAnalysis = riskAnalysis ?: current.riskResults[requestId],
-                rawResponseJson = rawResponseJson,
-                decidedAt = Clock.System.now(),
-            )
+        // Build the result outside of `_state.update {}` because that lambda
+        // can be retried under CAS contention — running side effects (DB
+        // insert, deferred completion) inside would duplicate them.
+        val current = _state.value
+        val request = current.pendingApprovals.find { it.id == requestId } ?: return
+        val result = ApprovalResult(
+            request = request,
+            decision = decision,
+            feedback = feedback,
+            riskAnalysis = riskAnalysis ?: current.riskResults[requestId],
+            rawResponseJson = rawResponseJson,
+            decidedAt = Clock.System.now(),
+        )
+        synchronized(persistLock) {
             databaseStorage?.insert(result)
-            val newHistory = (listOf(result) + current.history).let { list ->
-                val max = current.settings.maxHistoryEntries
+        }
+        pendingDeferreds.remove(requestId)?.complete(result)
+        _state.update { snapshot ->
+            val newHistory = (listOf(result) + snapshot.history).let { list ->
+                val max = snapshot.settings.maxHistoryEntries
                 if (list.size > max) list.take(max) else list
             }
-            pendingDeferreds.remove(requestId)?.complete(result)
-            current.copy(
-                pendingApprovals = current.pendingApprovals.filter { it.id != requestId },
+            snapshot.copy(
+                pendingApprovals = snapshot.pendingApprovals.filter { it.id != requestId },
                 history = newHistory,
-                riskResults = current.riskResults - requestId,
+                riskResults = snapshot.riskResults - requestId,
             )
         }
     }
@@ -85,7 +100,9 @@ class AppStateManager(
     }
 
     fun updateHistoryRawResponse(requestId: String, rawResponseJson: String) {
-        databaseStorage?.updateRawResponse(requestId, rawResponseJson)
+        synchronized(persistLock) {
+            databaseStorage?.updateRawResponse(requestId, rawResponseJson)
+        }
         _state.update { current ->
             val updatedHistory = current.history.map { result ->
                 if (result.request.id == requestId) result.copy(rawResponseJson = rawResponseJson) else result
@@ -100,11 +117,15 @@ class AppStateManager(
 
     fun updateSettings(settings: AppSettings) {
         _state.update { it.copy(settings = settings) }
-        settingsStorage?.save(settings)
+        synchronized(persistLock) {
+            settingsStorage?.save(settings)
+        }
     }
 
     fun addToHistory(result: ApprovalResult) {
-        databaseStorage?.insert(result)
+        synchronized(persistLock) {
+            databaseStorage?.insert(result)
+        }
         _state.update { current ->
             val newHistory = (listOf(result) + current.history).let { list ->
                 val max = current.settings.maxHistoryEntries
@@ -116,7 +137,9 @@ class AppStateManager(
 
     fun clearHistory() {
         _state.update { it.copy(history = emptyList()) }
-        databaseStorage?.clearAll()
+        synchronized(persistLock) {
+            databaseStorage?.clearAll()
+        }
     }
 
     fun addPreToolUseEvent(request: ApprovalRequest, hits: List<ProtectionHit>) {

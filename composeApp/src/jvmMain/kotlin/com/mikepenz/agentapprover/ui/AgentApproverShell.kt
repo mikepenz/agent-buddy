@@ -33,6 +33,7 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.mikepenz.agentapprover.app.ApprovalServerRunner
 import com.mikepenz.agentapprover.app.rememberPersistedWindowState
 import com.mikepenz.agentapprover.di.AppGraph
+import kotlinx.coroutines.cancel
 import com.mikepenz.agentapprover.ui.approvals.ApprovalsViewModel
 import com.mikepenz.agentapprover.ui.detail.ContentDetailWindow
 import com.mikepenz.agentapprover.ui.detail.LicensesWindow
@@ -122,12 +123,16 @@ fun AgentApproverShell(graph: AppGraph, devMode: Boolean, exitApplication: () ->
         }
     }
 
-    // Top-level cleanup: stop server, shut down Copilot, close DB.
+    // Top-level cleanup: stop server, shut down Copilot, close DB, cancel
+    // the application coroutine scope so any background jobs (tray observers,
+    // analyzer lifecycle) drain. Order matters: stop the inbound HTTP server
+    // first so no new approvals arrive mid-shutdown.
     DisposableEffect(Unit) {
         onDispose {
             graph.approvalServerRunner.stop()
             graph.riskAnalyzerLifecycle.shutdown()
             graph.databaseStorage.close()
+            graph.environment.appScope.cancel()
         }
     }
 
@@ -135,7 +140,7 @@ fun AgentApproverShell(graph: AppGraph, devMode: Boolean, exitApplication: () ->
         PortInUseWindow(themeMode = stateManager.state.value.settings.themeMode, onExit = exitApplication)
     }
 
-    val windowState = rememberPersistedWindowState(graph.settingsStorage)
+    val windowState = rememberPersistedWindowState(stateManager)
     val settings by stateManager.state.collectAsState()
 
     if (isVisible) {

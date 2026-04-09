@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.awt.CheckboxMenuItem
+import java.awt.EventQueue
 import java.awt.MenuItem
 import java.awt.PopupMenu
 import java.awt.SystemTray
@@ -96,16 +97,22 @@ class TrayManager(
         if (isMacOs) MacOsTrayBadge.update(icon, 0)
 
         // Observers run on the application coroutine scope so they survive
-        // window close. AWT mutations are safe from any thread for these
-        // properties; we don't dispatch to the EDT explicitly.
+        // window close. All AWT mutations (MenuItem.label, CheckboxMenuItem.state,
+        // TrayIcon.image, TrayIcon.toolTip) are dispatched to the EDT via
+        // EventQueue.invokeLater because Swing/AWT components are not
+        // thread-safe.
         val visibleJob = environment.appScope.launch {
-            _visible.collect { showHideItem.label = if (it) "Hide" else "Show" }
+            _visible.collect { visible ->
+                runOnEdt { showHideItem.label = if (visible) "Hide" else "Show" }
+            }
         }
         val awayModeJob = environment.appScope.launch {
             stateManager.state
                 .map { it.settings.awayMode }
                 .distinctUntilChanged()
-                .collect { awayModeItem.state = it }
+                .collect { awayMode ->
+                    runOnEdt { awayModeItem.state = awayMode }
+                }
         }
         val badgeJob = environment.appScope.launch {
             var previousPendingCount = 0
@@ -113,13 +120,17 @@ class TrayManager(
                 .map { it.pendingApprovals.size to it.settings.awayMode }
                 .distinctUntilChanged()
                 .collect { (pendingCount, awayMode) ->
-                    icon.image = AppIcon.createTrayIconMultiRes(pendingCount, drawBadge = !isMacOs)
-                    if (isMacOs) MacOsTrayBadge.update(icon, pendingCount)
-                    icon.toolTip = buildString {
+                    val tooltip = buildString {
                         append("Agent Approver")
                         if (pendingCount > 0) append(" ($pendingCount pending)")
                         if (awayMode) append(" [Away]")
                     }
+                    runOnEdt {
+                        icon.image = AppIcon.createTrayIconMultiRes(pendingCount, drawBadge = !isMacOs)
+                        if (isMacOs) MacOsTrayBadge.update(icon, pendingCount)
+                        icon.toolTip = tooltip
+                    }
+                    // Notification APIs are independent of AWT and safe off the EDT.
                     if (isMacOs) {
                         io.github.kdroidfilter.nucleus.notification.NotificationCenter
                             .setBadgeCount(pendingCount)
@@ -139,11 +150,23 @@ class TrayManager(
             visibleJob.cancel()
             awayModeJob.cancel()
             badgeJob.cancel()
-            try {
-                systemTray.remove(icon)
-            } catch (_: Exception) {
-                // Tray peer may already be torn down on shutdown.
+            runOnEdt {
+                try {
+                    systemTray.remove(icon)
+                } catch (_: Exception) {
+                    // Tray peer may already be torn down on shutdown.
+                }
             }
+        }
+    }
+
+    /** Run [block] on the AWT event-dispatch thread, optimising for the case
+     *  where the caller is already on it. */
+    private inline fun runOnEdt(crossinline block: () -> Unit) {
+        if (EventQueue.isDispatchThread()) {
+            block()
+        } else {
+            EventQueue.invokeLater { block() }
         }
     }
 }

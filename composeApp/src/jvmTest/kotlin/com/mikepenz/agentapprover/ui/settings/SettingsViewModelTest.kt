@@ -163,6 +163,61 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `rapid updateSettings calls land in launch order`() = runTest {
+        val (vm, state, _) = newVm()
+        runCurrent()
+
+        val s0 = state.state.value.settings
+        // Three rapid updates — the limitedParallelism(1) write dispatcher
+        // must drain them FIFO so the final state matches the last call.
+        vm.updateSettings(s0.copy(serverPort = 19001))
+        vm.updateSettings(s0.copy(serverPort = 19002))
+        vm.updateSettings(s0.copy(serverPort = 19003))
+        runCurrent()
+
+        assertEquals(19003, state.state.value.settings.serverPort)
+    }
+
+    @Test
+    fun `queryCopilotHookRegistered dedupes back-to-back calls for the same path`() = runTest {
+        // Counts every isHookRegistered call so we can assert dedup.
+        var checks = 0
+        val countingBridge = object : CopilotBridge {
+            override fun isInstalled(): Boolean = false
+            override fun install() {}
+            override fun uninstall() {}
+            override fun isHookRegistered(projectPath: String): Boolean {
+                checks++
+                return false
+            }
+            override fun registerHook(projectPath: String) {}
+            override fun unregisterHook(projectPath: String) {}
+        }
+        val state = AppStateManager()
+        val engine = ProtectionEngine(modules = emptyList(), settingsProvider = { ProtectionSettings() })
+        val vm = SettingsViewModel(
+            stateManager = state,
+            copilotBridge = countingBridge,
+            copilotStateHolder = CopilotStateHolder(),
+            protectionEngine = engine,
+            hookRegistry = FakeHookRegistry(),
+            ioDispatcher = mainDispatcher,
+        )
+        runCurrent()
+
+        // Hammer the same path before any of the launched coroutines have run —
+        // only the first call should make it past the in-flight gate.
+        repeat(20) { vm.queryCopilotHookRegistered("/path/x") }
+        runCurrent()
+        assertEquals(1, checks)
+
+        // After completion, the in-flight set is cleared and a new query goes through.
+        vm.queryCopilotHookRegistered("/path/x")
+        runCurrent()
+        assertEquals(2, checks)
+    }
+
+    @Test
     fun `updateSettings persists through state manager`() = runTest {
         val (vm, state, _) = newVm()
         runCurrent()
