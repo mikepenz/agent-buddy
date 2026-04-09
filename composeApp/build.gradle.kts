@@ -89,7 +89,6 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.cio)
-            implementation(libs.ktor.client.content.negotiation)
             implementation(libs.markdown.renderer)
             implementation(libs.markdown.renderer.code)
             implementation(libs.jna)

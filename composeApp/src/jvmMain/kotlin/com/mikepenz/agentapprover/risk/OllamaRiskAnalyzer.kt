@@ -66,10 +66,12 @@ class OllamaRiskAnalyzer(
         expectSuccess = false
     }
 
-    /** Probe `/api/tags` so the lifecycle can flip to READY only when the daemon answers. */
-    suspend fun start() {
-        listModels().getOrThrow()
-    }
+    /**
+     * Probe `/api/tags` so the lifecycle can flip to READY only when the daemon
+     * answers. Returns the locally installed models on success so the caller
+     * doesn't need a second `/api/tags` round-trip to populate its UI cache.
+     */
+    suspend fun start(): List<String> = listModels().getOrThrow()
 
     /** GET /api/tags — populates the model dropdown in Settings. */
     suspend fun listModels(): Result<List<String>> = withContext(Dispatchers.IO) {
@@ -87,12 +89,8 @@ class OllamaRiskAnalyzer(
             Result.success(names)
         } catch (e: CancellationException) {
             throw e
-        } catch (e: ConnectException) {
-            Result.failure(RuntimeException("Ollama not reachable at $baseUrl", e))
         } catch (e: Exception) {
-            // Wrap connection-class IO errors so the UI gets the same friendly message
-            val msg = e.message.orEmpty().lowercase()
-            if ("connect" in msg || "refused" in msg || "unreachable" in msg || "no route" in msg) {
+            if (isConnectionError(e)) {
                 Result.failure(RuntimeException("Ollama not reachable at $baseUrl", e))
             } else {
                 log.e(e) { "Failed to list models" }
@@ -110,17 +108,34 @@ class OllamaRiskAnalyzer(
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: ConnectException) {
-            Result.failure(RuntimeException("Ollama not reachable at $baseUrl", e))
         } catch (e: Exception) {
-            val msg = e.message.orEmpty().lowercase()
-            if ("connect" in msg || "refused" in msg || "unreachable" in msg) {
+            if (isConnectionError(e)) {
                 Result.failure(RuntimeException("Ollama not reachable at $baseUrl", e))
             } else {
                 log.e(e) { "Analysis failed" }
                 Result.failure(e)
             }
         }
+    }
+
+    /**
+     * True for any IOException-class failure that means the daemon is unreachable —
+     * connection refused, host unreachable, no route to host, etc. Walks the cause
+     * chain because ktor wraps engine errors in [io.ktor.client.network.sockets.ConnectTimeoutException]
+     * and similar.
+     */
+    private fun isConnectionError(e: Throwable): Boolean {
+        var current: Throwable? = e
+        val visited = mutableSetOf<Throwable>()
+        while (current != null && visited.add(current)) {
+            if (current is ConnectException) return true
+            val msg = current.message.orEmpty().lowercase()
+            if ("connect" in msg || "refused" in msg || "unreachable" in msg || "no route" in msg) {
+                return true
+            }
+            current = current.cause
+        }
+        return false
     }
 
     private suspend fun callOllama(hookInput: HookInput): RiskAnalysis {

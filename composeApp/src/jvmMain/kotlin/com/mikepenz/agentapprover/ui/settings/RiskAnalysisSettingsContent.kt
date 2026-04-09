@@ -45,6 +45,22 @@ import com.mikepenz.agentapprover.risk.CopilotInitState
 import com.mikepenz.agentapprover.risk.OllamaInitState
 import com.mikepenz.agentapprover.risk.RiskMessageBuilder
 
+/**
+ * Open [url] in the user's default browser, no-op on platforms or headless
+ * environments where AWT Desktop is unavailable. Swallows exceptions so a
+ * failed browser launch never crashes the settings tab.
+ */
+private fun openBrowserSafely(url: String) {
+    try {
+        if (!java.awt.Desktop.isDesktopSupported()) return
+        val desktop = java.awt.Desktop.getDesktop()
+        if (!desktop.isSupported(java.awt.Desktop.Action.BROWSE)) return
+        desktop.browse(java.net.URI(url))
+    } catch (_: Exception) {
+        // Best-effort: do not crash the settings screen if the browser launch fails.
+    }
+}
+
 @Composable
 fun RiskAnalysisSettingsContent(
     settings: AppSettings,
@@ -332,11 +348,7 @@ fun RiskAnalysisSettingsContent(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     OutlinedButton(
-                        onClick = {
-                            java.awt.Desktop.getDesktop().browse(
-                                java.net.URI("https://ollama.com/download")
-                            )
-                        },
+                        onClick = { openBrowserSafely("https://ollama.com/download") },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Download Ollama", fontSize = 12.sp)

@@ -119,11 +119,9 @@ class RiskAnalyzerLifecycle(
                 customSystemPrompt = settings.riskAnalysisCustomPrompt,
             )
             try {
-                analyzer.start()
+                val models = analyzer.start()
                 ollamaAnalyzer = analyzer
-                analyzer.listModels().onSuccess { models ->
-                    ollamaStateHolder.setModels(models)
-                }
+                ollamaStateHolder.setModels(models)
                 ollamaStateHolder.setInitState(OllamaInitState.READY)
             } catch (e: Exception) {
                 log.e(e) { "Failed to start Ollama analyzer" }
