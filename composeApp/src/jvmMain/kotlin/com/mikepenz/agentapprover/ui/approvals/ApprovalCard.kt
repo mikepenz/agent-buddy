@@ -60,6 +60,7 @@ import com.mikepenz.agentapprover.ui.theme.sourceLabel
 import com.mikepenz.agentapprover.ui.theme.toolColor
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
+import kotlinx.datetime.Instant
 import kotlinx.serialization.json.JsonElement
 
 enum class RiskStatus { IDLE, ANALYZING, COMPLETED, ERROR }
@@ -79,6 +80,7 @@ fun ApprovalCard(
     autoDenyActive: Boolean,
     onCancelAutoDeny: () -> Unit,
     awayMode: Boolean = false,
+    now: Instant = Clock.System.now(),
     onPopOut: ((title: String, content: String) -> Unit)? = null,
 ) {
     val borderColor by animateColorAsState(
@@ -158,15 +160,19 @@ fun ApprovalCard(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             RiskBadge(riskResult = riskResult, riskStatus = riskStatus, riskError = riskError)
-                            if (request.toolType == ToolType.DEFAULT && !awayMode) {
-                                val fraction = remainingSeconds.toFloat() / timeoutSeconds
-                                val color = if (fraction < 0.2f) Color(0xFFF44336) else MaterialTheme.colorScheme.onSurfaceVariant
-                                Text(
-                                    text = "${remainingSeconds}s",
-                                    fontSize = 10.sp,
-                                    color = color,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                )
+                            if (request.toolType == ToolType.DEFAULT) {
+                                if (awayMode) {
+                                    ElapsedTimeBadge(request.timestamp, now)
+                                } else {
+                                    val fraction = remainingSeconds.toFloat() / timeoutSeconds
+                                    val color = if (fraction < 0.2f) Color(0xFFF44336) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    Text(
+                                        text = "${remainingSeconds}s",
+                                        fontSize = 10.sp,
+                                        color = color,
+                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    )
+                                }
                             }
                         }
                     }
@@ -253,6 +259,24 @@ fun TimerProgressBar(
         modifier = Modifier.fillMaxWidth().height(3.dp),
         color = color,
         trackColor = Color.Transparent,
+    )
+}
+
+@Composable
+fun ElapsedTimeBadge(timestamp: Instant, now: Instant) {
+    val elapsedSeconds = (now - timestamp).inWholeSeconds.toInt().coerceAtLeast(0)
+
+    val text = when {
+        elapsedSeconds < 60 -> "${elapsedSeconds}s"
+        elapsedSeconds < 3600 -> "${elapsedSeconds / 60}m ${elapsedSeconds % 60}s"
+        else -> "${elapsedSeconds / 3600}h ${(elapsedSeconds % 3600) / 60}m"
+    }
+
+    Text(
+        text = text,
+        fontSize = 10.sp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
     )
 }
 
