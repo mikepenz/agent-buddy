@@ -124,6 +124,7 @@ fun App(
         val currentIds = state.pendingApprovals.map { it.id }.toSet()
         knownIds.removeAll { it !in currentIds }
         userInteractionTimestamps.keys.removeAll { it !in currentIds }
+        autoDenyRequests.removeAll { it !in currentIds }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -352,6 +353,11 @@ private suspend fun runAutoDenyWithRetry(
         var interrupted = false
         while (System.currentTimeMillis() - countdownStartedAt < AUTO_DENY_COUNTDOWN_MS) {
             delay(200)
+            // Request was resolved manually (or otherwise removed) — stop the countdown.
+            if (stateManager.state.value.pendingApprovals.none { it.id == approvalId }) {
+                autoDenyRequests.remove(approvalId)
+                return
+            }
             // User cancelled via the overlay button
             if (approvalId !in autoDenyRequests) return
             // User interacted with the card during the countdown — abort and wait for quiet
