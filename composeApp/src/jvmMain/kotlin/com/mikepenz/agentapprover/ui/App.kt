@@ -65,6 +65,7 @@ fun App(
     val riskStatuses = remember { mutableStateMapOf<String, RiskStatus>() }
     val riskErrors = remember { mutableStateMapOf<String, String>() }
     val autoDenyRequests = remember { mutableStateSetOf<String>() }
+    val userInteractingIds = remember { mutableStateSetOf<String>() }
 
     // Track pending approval IDs to detect new arrivals
     val knownIds = remember { mutableStateSetOf<String>() }
@@ -85,17 +86,19 @@ fun App(
                             val skipAutoActions = approval.toolType == ToolType.PLAN || approval.toolType == ToolType.ASK_USER_QUESTION
                             if (!skipAutoActions && analysis.risk == 1 && state.settings.autoApproveRisk1) {
                                 delay(500)
-                                stateManager.resolve(
-                                    requestId = approval.id,
-                                    decision = Decision.AUTO_APPROVED,
-                                    feedback = "Auto-approved: risk level 1",
-                                    riskAnalysis = analysis,
-                                    rawResponseJson = null,
-                                )
+                                if (approval.id !in userInteractingIds) {
+                                    stateManager.resolve(
+                                        requestId = approval.id,
+                                        decision = Decision.AUTO_APPROVED,
+                                        feedback = "Auto-approved: risk level 1",
+                                        riskAnalysis = analysis,
+                                        rawResponseJson = null,
+                                    )
+                                }
                             } else if (!skipAutoActions && !state.settings.awayMode && analysis.risk == 5 && state.settings.autoDenyRisk5) {
                                 autoDenyRequests.add(approval.id)
                                 delay(15_000)
-                                if (approval.id in autoDenyRequests) {
+                                if (approval.id in autoDenyRequests && approval.id !in userInteractingIds) {
                                     autoDenyRequests.remove(approval.id)
                                     stateManager.resolve(
                                         requestId = approval.id,
@@ -121,6 +124,7 @@ fun App(
         // Clean up IDs that are no longer pending
         val currentIds = state.pendingApprovals.map { it.id }.toSet()
         knownIds.removeAll { it !in currentIds }
+        userInteractingIds.removeAll { it !in currentIds }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -233,6 +237,7 @@ fun App(
                 },
                 autoDenyRequests = autoDenyRequests,
                 onCancelAutoDeny = { requestId -> autoDenyRequests.remove(requestId) },
+                onUserInteraction = { requestId -> userInteractingIds.add(requestId) },
                 onPopOut = onPopOut,
                 onSettingsChange = { stateManager.updateSettings(it) },
             )
