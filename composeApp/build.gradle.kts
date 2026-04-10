@@ -41,6 +41,7 @@ configurations.all {
 }
 
 val appVersion = providers.gradleProperty("app.version").get()
+val appPackageVersion = appVersion.substringBefore("-")
 
 val generateVersion = project.tasks.register<VersionTask>("generateVersion") {
     packageString.set("com.mikepenz.agentapprover")
@@ -131,7 +132,7 @@ nucleus.application {
     nativeDistributions {
         targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
         packageName = "AgentApprover"
-        packageVersion = appVersion
+        packageVersion = appPackageVersion
         description = "Centralized approval UI for AI agent tool requests"
         vendor = "mikepenz"
 
