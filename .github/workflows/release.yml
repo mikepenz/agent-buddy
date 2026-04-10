@@ -70,7 +70,54 @@ jobs:
 
           rm -f "$CERTIFICATE_PATH"
 
-      - name: Build and sign DMG
+      - name: Build distributable app
+        env:
+          MACOS_SIGN: 'true'
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: ./gradlew :composeApp:createDistributable --stacktrace
+
+      - name: Sign native libraries inside JARs
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          APP_DIR="composeApp/build/compose/binaries/main/app/AgentApprover.app"
+          IDENTITY="$MACOS_SIGNING_IDENTITY"
+
+          echo "Signing native libraries inside JARs..."
+          find "$APP_DIR/Contents/app" -name "*.jar" | while read -r jar; do
+            JAR_LIBS=$(jar tf "$jar" | grep -E '\.(dylib|jnilib)$' || true)
+            if [ -n "$JAR_LIBS" ]; then
+              echo "  Processing: $(basename "$jar")"
+              WORK=$(mktemp -d)
+              pushd "$WORK" > /dev/null
+              printf '%s\n' "$JAR_LIBS" | while read -r lib; do
+                [ -n "$lib" ] || continue
+                jar xf "$jar" "$lib"
+                echo "    Signing: $lib"
+                codesign --force --options runtime --timestamp --sign "$IDENTITY" "$lib"
+              done
+              printf '%s\n' "$JAR_LIBS" | while read -r lib; do
+                [ -n "$lib" ] || continue
+                jar uf "$jar" "$lib"
+              done
+              popd > /dev/null
+              rm -rf "$WORK"
+            fi
+          done
+
+          echo "Signing loose native libraries..."
+          find "$APP_DIR" -type f \( -name "*.dylib" -o -name "*.jnilib" \) | while read -r lib; do
+            echo "  Signing: $lib"
+            codesign --force --options runtime --timestamp --sign "$IDENTITY" "$lib"
+          done
+
+          echo "Re-signing app bundle..."
+          codesign --force --deep --options runtime --timestamp --sign "$IDENTITY" "$APP_DIR"
+
+          echo "Verifying app bundle signature..."
+          codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+
+      - name: Package DMG
         env:
           MACOS_SIGN: 'true'
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
