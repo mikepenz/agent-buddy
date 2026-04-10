@@ -4,7 +4,8 @@
       <verify-metadata>true</verify-metadata>
       <verify-signatures>false</verify-signatures>
       <trusted-artifacts>
-         <!-- Platform-specific artifacts resolved via compose.desktop.currentOs (vary by OS/arch) -->
+         <!-- Platform-specific and packaging artifacts resolved via compose.desktop.currentOs (vary by OS/arch) -->
+         <trust group="org.jetbrains.compose" regex="true"/>
          <trust group="org.jetbrains.compose.desktop" regex="true"/>
          <trust group="org.jetbrains.skiko" regex="true"/>
          <!-- Artifacts injected by gradle/actions/setup-gradle (Develocity init script) -->
