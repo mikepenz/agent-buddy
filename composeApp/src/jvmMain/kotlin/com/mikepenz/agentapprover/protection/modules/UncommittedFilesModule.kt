@@ -7,6 +7,8 @@ import com.mikepenz.agentapprover.model.ProtectionMode
 import com.mikepenz.agentapprover.protection.CommandParser
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.protection.ProtectionRule
+import com.mikepenz.agentapprover.protection.parser.OpKind
+import com.mikepenz.agentapprover.protection.parser.allSimpleCommands
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -17,6 +19,8 @@ object UncommittedFilesModule : ProtectionModule {
     override val corrective = false
     override val defaultMode = ProtectionMode.ASK
     override val applicableTools = setOf("Bash")
+
+    private val destructiveCommands = setOf("rm", "mv", "unlink", "truncate")
 
     override val rules: List<ProtectionRule> = listOf(
         DestructiveOnDirty,
@@ -34,30 +38,56 @@ object UncommittedFilesModule : ProtectionModule {
         override val name = "Destructive operation on dirty files"
         override val description =
             "Detects destructive operations (rm, mv, unlink, truncate, redirect, sed -i, perl -i) targeting files with uncommitted git changes."
-        private val destructivePattern = Regex("""\b(rm|mv|unlink|truncate)\b|>\s|sed\s+-i|perl\s+-i""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!destructivePattern.containsMatchIn(cmd)) return null
-
-            val paths = CommandParser.extractPaths(cmd)
-            if (paths.isEmpty()) return null
-
+            val parsed = CommandParser.parsedBash(hookInput) ?: return null
             val cwd = hookInput.cwd.ifEmpty { return null }
+
+            // Collect candidate file paths from any simple command that performs a destructive op.
+            val candidates = mutableListOf<String>()
+            var anyDestructive = false
+            for (sc in parsed.allSimpleCommands()) {
+                val name = sc.commandName
+                var destructive = false
+                if (name in destructiveCommands) {
+                    destructive = true
+                    sc.args.forEach { a -> a.literal?.let { if (!it.startsWith("-")) candidates.add(it) } }
+                }
+                if (name == "sed" && (sc.hasFlag(short = 'i') || sc.hasLongFlag("--in-place"))) {
+                    destructive = true
+                    sc.args.forEach { a -> a.literal?.let { if (!it.startsWith("-") && !it.contains("s/")) candidates.add(it) } }
+                }
+                if (name == "perl" && sc.hasFlag(short = 'i')) {
+                    destructive = true
+                    sc.args.forEach { a -> a.literal?.let { if (!it.startsWith("-")) candidates.add(it) } }
+                }
+                // Any overwrite redirect (>, >>, >|, &>, &>>) treats its target as a destructive write.
+                for (r in sc.redirects) {
+                    when (r.op) {
+                        OpKind.REDIR_OUT, OpKind.REDIR_APPEND, OpKind.REDIR_FORCE_OUT,
+                        OpKind.REDIR_ALL_OUT, OpKind.REDIR_ALL_APPEND -> {
+                            destructive = true
+                            r.target.literal?.let { candidates.add(it) }
+                        }
+                        else -> {}
+                    }
+                }
+                if (destructive) anyDestructive = true
+            }
+            if (!anyDestructive || candidates.isEmpty()) return null
+
             val dirtyFiles = getDirtyFiles(cwd) ?: return null
             if (dirtyFiles.isEmpty()) return null
 
-            val matchingFiles = paths.filter { path ->
+            val matching = candidates.any { path ->
                 val resolved = if (path.startsWith("/")) path else "$cwd/$path"
                 val normalized = File(resolved).normalize().path
                 dirtyFiles.any { dirty ->
-                    val dirtyResolved = "$cwd/$dirty"
-                    val dirtyNormalized = File(dirtyResolved).normalize().path
+                    val dirtyNormalized = File("$cwd/$dirty").normalize().path
                     normalized == dirtyNormalized || dirty == path
                 }
             }
-
-            if (matchingFiles.isEmpty()) return null
+            if (!matching) return null
             return hit(
                 id,
                 "Blocked: destructive operation on file with uncommitted changes. Use git stash first or use the Edit tool.",

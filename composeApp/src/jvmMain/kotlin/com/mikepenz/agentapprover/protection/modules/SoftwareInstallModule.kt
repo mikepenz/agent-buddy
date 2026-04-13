@@ -6,6 +6,8 @@ import com.mikepenz.agentapprover.model.ProtectionMode
 import com.mikepenz.agentapprover.protection.CommandParser
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.protection.ProtectionRule
+import com.mikepenz.agentapprover.protection.parser.SimpleCommand
+import com.mikepenz.agentapprover.protection.parser.allSimpleCommands
 
 object SoftwareInstallModule : ProtectionModule {
     override val id = "software_install"
@@ -16,25 +18,27 @@ object SoftwareInstallModule : ProtectionModule {
     override val defaultMode = ProtectionMode.ASK_AUTO_BLOCK
     override val applicableTools = setOf("Bash")
 
-    override val rules: List<ProtectionRule> = listOf(
-        BrewInstall,
-        NpmGlobalInstall,
-        YarnGlobalInstall,
-        PnpmGlobalInstall,
-        Npx,
-        PipxInstall,
-        CargoInstall,
-        GoInstall,
-        GemInstall,
-        AptInstall,
-        YumDnfInstall,
-        PacmanInstall,
-        SnapInstall,
-        MasInstall,
-        SdkmanInstall,
-        WingetInstall,
-        ChocoInstall,
-    )
+    override val rules: List<ProtectionRule> by lazy {
+        listOf(
+            BrewInstall,
+            NpmGlobalInstall,
+            YarnGlobalInstall,
+            PnpmGlobalInstall,
+            Npx,
+            PipxInstall,
+            CargoInstall,
+            GoInstall,
+            GemInstall,
+            AptInstall,
+            YumDnfInstall,
+            PacmanInstall,
+            SnapInstall,
+            MasInstall,
+            SdkmanInstall,
+            WingetInstall,
+            ChocoInstall,
+        )
+    }
 
     private fun hit(ruleId: String, message: String) = ProtectionHit(
         moduleId = id,
@@ -43,226 +47,174 @@ object SoftwareInstallModule : ProtectionModule {
         mode = defaultMode,
     )
 
-    private object BrewInstall : ProtectionRule {
-        override val id = "brew_install"
-        override val name = "Homebrew install"
-        override val description = "Detects Homebrew package installation (brew install/reinstall/tap/cask)."
-        private val pattern = Regex("""\bbrew\s+(install|reinstall|tap|cask\s+install)\b""")
+    private fun commands(hookInput: HookInput): Sequence<SimpleCommand> =
+        CommandParser.parsedBash(hookInput)?.allSimpleCommands() ?: emptySequence()
 
+    /** Check: command basename matches [name] and at least one of its literal args equals [subcommand]. */
+    private fun simpleRule(
+        ruleId: String,
+        ruleName: String,
+        ruleDescription: String,
+        message: String,
+        match: (SimpleCommand) -> Boolean,
+    ): ProtectionRule = object : ProtectionRule {
+        override val id = ruleId
+        override val name = ruleName
+        override val description = ruleDescription
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "Homebrew install: $cmd")
+            return if (commands(hookInput).any(match)) hit(id, "$message: $cmd") else null
         }
     }
 
-    private object NpmGlobalInstall : ProtectionRule {
-        override val id = "npm_global_install"
-        override val name = "npm global install"
-        override val description = "Detects npm install -g / npm i -g / npm add -g."
-        private val pattern = Regex("""\bnpm\s+(install|i|add)\b[^|;&]*\s(-g|--global)\b""")
+    private val BrewInstall = simpleRule(
+        ruleId = "brew_install",
+        ruleName = "Homebrew install",
+        ruleDescription = "Detects Homebrew package installation (brew install/reinstall/tap/cask).",
+        message = "Homebrew install",
+    ) { sc ->
+        sc.commandName == "brew" && (
+            sc.hasLiteralArg("install") || sc.hasLiteralArg("reinstall") ||
+                sc.hasLiteralArg("tap") ||
+                (sc.hasLiteralArg("cask") && sc.hasLiteralArg("install"))
+            )
+    }
 
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "npm global install: $cmd")
+    private val NpmGlobalInstall = simpleRule(
+        ruleId = "npm_global_install",
+        ruleName = "npm global install",
+        ruleDescription = "Detects npm install -g / npm i -g / npm add -g.",
+        message = "npm global install",
+    ) { sc ->
+        if (sc.commandName != "npm") return@simpleRule false
+        val isInstall = sc.hasLiteralArg("install") || sc.hasLiteralArg("i") || sc.hasLiteralArg("add")
+        val isGlobal = sc.hasFlag(short = 'g') || sc.hasLongFlag("--global")
+        isInstall && isGlobal
+    }
+
+    private val YarnGlobalInstall = simpleRule(
+        ruleId = "yarn_global_install",
+        ruleName = "yarn global install",
+        ruleDescription = "Detects yarn global add.",
+        message = "yarn global install",
+    ) { sc -> sc.commandName == "yarn" && sc.hasLiteralArg("global") && sc.hasLiteralArg("add") }
+
+    private val PnpmGlobalInstall = simpleRule(
+        ruleId = "pnpm_global_install",
+        ruleName = "pnpm global install",
+        ruleDescription = "Detects pnpm add -g / pnpm install -g.",
+        message = "pnpm global install",
+    ) { sc ->
+        if (sc.commandName != "pnpm") return@simpleRule false
+        val isAdd = sc.hasLiteralArg("add") || sc.hasLiteralArg("install") || sc.hasLiteralArg("i")
+        val isGlobal = sc.hasFlag(short = 'g') || sc.hasLongFlag("--global")
+        isAdd && isGlobal
+    }
+
+    private val Npx = simpleRule(
+        ruleId = "npx",
+        ruleName = "npx package execution",
+        ruleDescription = "Detects npx, which downloads and runs arbitrary npm packages.",
+        message = "npx package execution",
+    ) { sc -> sc.commandName == "npx" }
+
+    private val PipxInstall = simpleRule(
+        ruleId = "pipx_install",
+        ruleName = "pipx install",
+        ruleDescription = "Detects pipx install.",
+        message = "pipx install",
+    ) { sc -> sc.commandName == "pipx" && (sc.hasLiteralArg("install") || sc.hasLiteralArg("run")) }
+
+    private val CargoInstall = simpleRule(
+        ruleId = "cargo_install",
+        ruleName = "cargo install",
+        ruleDescription = "Detects cargo install, which fetches and builds a crate globally.",
+        message = "cargo install",
+    ) { sc -> sc.commandName == "cargo" && sc.hasLiteralArg("install") }
+
+    private val GoInstall = simpleRule(
+        ruleId = "go_install",
+        ruleName = "go install",
+        ruleDescription = "Detects go install, which fetches and installs Go binaries.",
+        message = "go install",
+    ) { sc -> sc.commandName == "go" && sc.hasLiteralArg("install") }
+
+    private val GemInstall = simpleRule(
+        ruleId = "gem_install",
+        ruleName = "gem install",
+        ruleDescription = "Detects RubyGems install.",
+        message = "gem install",
+    ) { sc -> sc.commandName == "gem" && sc.hasLiteralArg("install") }
+
+    private val AptInstall = simpleRule(
+        ruleId = "apt_install",
+        ruleName = "apt install",
+        ruleDescription = "Detects apt/apt-get install.",
+        message = "apt install",
+    ) { sc ->
+        val name = sc.commandName
+        (name == "apt" || name == "apt-get") &&
+            (sc.hasLiteralArg("install") || sc.hasLiteralArg("full-upgrade") || sc.hasLiteralArg("dist-upgrade"))
+    }
+
+    private val YumDnfInstall = simpleRule(
+        ruleId = "yum_dnf_install",
+        ruleName = "yum/dnf install",
+        ruleDescription = "Detects yum or dnf install.",
+        message = "yum/dnf install",
+    ) { sc ->
+        val name = sc.commandName
+        (name == "yum" || name == "dnf") &&
+            (sc.hasLiteralArg("install") || sc.hasLiteralArg("upgrade") || (sc.hasLiteralArg("group") && sc.hasLiteralArg("install")))
+    }
+
+    private val PacmanInstall = simpleRule(
+        ruleId = "pacman_install",
+        ruleName = "pacman -S",
+        ruleDescription = "Detects pacman -S / -Syu / --sync (including combined short flags).",
+        message = "pacman install",
+    ) { sc ->
+        if (sc.commandName != "pacman") return@simpleRule false
+        if (sc.hasLongFlag("--sync")) return@simpleRule true
+        // Any short-flag argument whose first letter is `S` (e.g. -S, -Sy, -Syu, -Syyu).
+        sc.args.any { a ->
+            val lit = a.literal ?: return@any false
+            lit.length >= 2 && lit[0] == '-' && lit[1] == 'S'
         }
     }
 
-    private object YarnGlobalInstall : ProtectionRule {
-        override val id = "yarn_global_install"
-        override val name = "yarn global install"
-        override val description = "Detects yarn global add."
-        private val pattern = Regex("""\byarn\s+global\s+add\b""")
+    private val SnapInstall = simpleRule(
+        ruleId = "snap_install",
+        ruleName = "snap install",
+        ruleDescription = "Detects snap install.",
+        message = "snap install",
+    ) { sc -> sc.commandName == "snap" && sc.hasLiteralArg("install") }
 
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "yarn global install: $cmd")
-        }
-    }
+    private val MasInstall = simpleRule(
+        ruleId = "mas_install",
+        ruleName = "mas install",
+        ruleDescription = "Detects Mac App Store install via mas.",
+        message = "Mac App Store install",
+    ) { sc -> sc.commandName == "mas" && sc.hasLiteralArg("install") }
 
-    private object PnpmGlobalInstall : ProtectionRule {
-        override val id = "pnpm_global_install"
-        override val name = "pnpm global install"
-        override val description = "Detects pnpm add -g / pnpm install -g."
-        private val pattern = Regex("""\bpnpm\s+(add|install|i)\b[^|;&]*\s(-g|--global)\b""")
+    private val SdkmanInstall = simpleRule(
+        ruleId = "sdkman_install",
+        ruleName = "sdk install",
+        ruleDescription = "Detects SDKMAN install.",
+        message = "SDKMAN install",
+    ) { sc -> sc.commandName == "sdk" && sc.hasLiteralArg("install") }
 
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "pnpm global install: $cmd")
-        }
-    }
+    private val WingetInstall = simpleRule(
+        ruleId = "winget_install",
+        ruleName = "winget install",
+        ruleDescription = "Detects Windows Package Manager install.",
+        message = "winget install",
+    ) { sc -> sc.commandName == "winget" && sc.hasLiteralArg("install") }
 
-    private object Npx : ProtectionRule {
-        override val id = "npx"
-        override val name = "npx package execution"
-        override val description = "Detects npx, which downloads and runs arbitrary npm packages."
-        private val pattern = Regex("""\bnpx\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "npx package execution: $cmd")
-        }
-    }
-
-    private object PipxInstall : ProtectionRule {
-        override val id = "pipx_install"
-        override val name = "pipx install"
-        override val description = "Detects pipx install."
-        private val pattern = Regex("""\bpipx\s+(install|run)\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "pipx install: $cmd")
-        }
-    }
-
-    private object CargoInstall : ProtectionRule {
-        override val id = "cargo_install"
-        override val name = "cargo install"
-        override val description = "Detects cargo install, which fetches and builds a crate globally."
-        private val pattern = Regex("""\bcargo\s+install\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "cargo install: $cmd")
-        }
-    }
-
-    private object GoInstall : ProtectionRule {
-        override val id = "go_install"
-        override val name = "go install"
-        override val description = "Detects go install, which fetches and installs Go binaries."
-        private val pattern = Regex("""\bgo\s+install\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "go install: $cmd")
-        }
-    }
-
-    private object GemInstall : ProtectionRule {
-        override val id = "gem_install"
-        override val name = "gem install"
-        override val description = "Detects RubyGems install."
-        private val pattern = Regex("""\bgem\s+install\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "gem install: $cmd")
-        }
-    }
-
-    private object AptInstall : ProtectionRule {
-        override val id = "apt_install"
-        override val name = "apt install"
-        override val description = "Detects apt/apt-get install."
-        private val pattern = Regex("""\bapt(-get)?\s+(install|full-upgrade|dist-upgrade)\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "apt install: $cmd")
-        }
-    }
-
-    private object YumDnfInstall : ProtectionRule {
-        override val id = "yum_dnf_install"
-        override val name = "yum/dnf install"
-        override val description = "Detects yum or dnf install."
-        private val pattern = Regex("""\b(yum|dnf)\s+(install|upgrade|group\s+install)\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "yum/dnf install: $cmd")
-        }
-    }
-
-    private object PacmanInstall : ProtectionRule {
-        override val id = "pacman_install"
-        override val name = "pacman -S"
-        override val description = "Detects pacman -S / -Syu / --sync (including combined short flags)."
-        // pacman's operation is the first capital letter after `-`; -S* = sync, so match any
-        // short-flag token whose first letter is S (e.g. -S, -Sy, -Syu, -Syyu, -Su).
-        private val pattern = Regex("""\bpacman\s+(-S[a-zA-Z]*\b|--sync\b)""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "pacman install: $cmd")
-        }
-    }
-
-    private object SnapInstall : ProtectionRule {
-        override val id = "snap_install"
-        override val name = "snap install"
-        override val description = "Detects snap install."
-        private val pattern = Regex("""\bsnap\s+install\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "snap install: $cmd")
-        }
-    }
-
-    private object MasInstall : ProtectionRule {
-        override val id = "mas_install"
-        override val name = "mas install"
-        override val description = "Detects Mac App Store install via mas."
-        private val pattern = Regex("""\bmas\s+install\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "Mac App Store install: $cmd")
-        }
-    }
-
-    private object SdkmanInstall : ProtectionRule {
-        override val id = "sdkman_install"
-        override val name = "sdk install"
-        override val description = "Detects SDKMAN install."
-        private val pattern = Regex("""\bsdk\s+install\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "SDKMAN install: $cmd")
-        }
-    }
-
-    private object WingetInstall : ProtectionRule {
-        override val id = "winget_install"
-        override val name = "winget install"
-        override val description = "Detects Windows Package Manager install."
-        private val pattern = Regex("""\bwinget\s+install\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "winget install: $cmd")
-        }
-    }
-
-    private object ChocoInstall : ProtectionRule {
-        override val id = "choco_install"
-        override val name = "choco install"
-        override val description = "Detects Chocolatey install."
-        private val pattern = Regex("""\bchoco\s+install\b""")
-
-        override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "choco install: $cmd")
-        }
-    }
+    private val ChocoInstall = simpleRule(
+        ruleId = "choco_install",
+        ruleName = "choco install",
+        ruleDescription = "Detects Chocolatey install.",
+        message = "choco install",
+    ) { sc -> sc.commandName == "choco" && sc.hasLiteralArg("install") }
 }

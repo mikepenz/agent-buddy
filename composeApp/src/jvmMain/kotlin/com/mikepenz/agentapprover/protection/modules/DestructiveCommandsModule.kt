@@ -6,6 +6,9 @@ import com.mikepenz.agentapprover.model.ProtectionMode
 import com.mikepenz.agentapprover.protection.CommandParser
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.protection.ProtectionRule
+import com.mikepenz.agentapprover.protection.parser.ParsedCommand
+import com.mikepenz.agentapprover.protection.parser.SimpleCommand
+import com.mikepenz.agentapprover.protection.parser.allSimpleCommands
 
 object DestructiveCommandsModule : ProtectionModule {
     override val id = "destructive_commands"
@@ -35,18 +38,32 @@ object DestructiveCommandsModule : ProtectionModule {
         mode = defaultMode,
     )
 
+    /** Parse helper — returns the parsed command or null if not a Bash invocation. */
+    private fun parse(hookInput: HookInput): ParsedCommand? = CommandParser.parsedBash(hookInput)
+
+    /** All simple commands reachable from [hookInput], flattened (recursing into subshells / bash -c bodies). */
+    private fun commands(hookInput: HookInput): Sequence<SimpleCommand> =
+        parse(hookInput)?.allSimpleCommands() ?: emptySequence()
+
     private object RmRf : ProtectionRule {
         override val id = "rm_rf"
         override val name = "Recursive force remove"
         override val description = "Detects rm -rf and variants that recursively force-delete files."
-        private val pattern = Regex(
-            """\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*|--recursive\s+--force|--force\s+--recursive)\b"""
-        )
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            if (cmd.contains("/tmp")) return null
+            val offending = commands(hookInput).firstOrNull { sc ->
+                if (sc.commandName != "rm") return@firstOrNull false
+                val hasR = sc.hasFlag(short = 'r') || sc.hasLongFlag("--recursive")
+                val hasF = sc.hasFlag(short = 'f') || sc.hasLongFlag("--force")
+                if (!(hasR && hasF)) return@firstOrNull false
+                // /tmp whitelist: if every non-flag literal arg resolves under /tmp and none is opaque, allow.
+                val targets = sc.args.filter { it.literal?.startsWith("-") != true }
+                val allLiteral = targets.all { it.literal != null }
+                val allTmp = allLiteral && targets.isNotEmpty() &&
+                    targets.all { it.literal!!.startsWith("/tmp") || it.literal!!.startsWith("tmp/") }
+                !allTmp
+            } ?: return null
             return hit(id, "Recursive force delete: $cmd")
         }
     }
@@ -55,15 +72,21 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "find_delete"
         override val name = "Find with delete"
         override val description = "Detects find commands that delete matched files."
-        private val deletePattern = Regex("""\bfind\b.*\s-delete\b""")
-        private val execRmPattern = Regex("""\bfind\b.*-exec\s+rm\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (deletePattern.containsMatchIn(cmd) || execRmPattern.containsMatchIn(cmd)) {
-                return hit(id, "Find with destructive action: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                if (sc.commandName != "find") return@firstOrNull false
+                if (sc.hasLiteralArg("-delete")) return@firstOrNull true
+                // -exec rm ...
+                val execIdx = sc.args.indexOfFirst { it.literal == "-exec" }
+                if (execIdx >= 0 && execIdx + 1 < sc.args.size) {
+                    val next = sc.args[execIdx + 1].literal
+                    if (next != null && (next == "rm" || next.endsWith("/rm"))) return@firstOrNull true
+                }
+                false
             }
-            return null
+            return if (match != null) hit(id, "Find with destructive action: $cmd") else null
         }
     }
 
@@ -71,14 +94,19 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "xargs_rm"
         override val name = "Piped xargs remove"
         override val description = "Detects xargs piped to rm or unlink."
-        private val pattern = Regex("""\bxargs\s+(rm|unlink)\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (pattern.containsMatchIn(cmd)) {
-                return hit(id, "Piped xargs delete: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                if (sc.commandName != "xargs") return@firstOrNull false
+                // xargs invokes the first non-flag positional arg as a command.
+                val invokedCmd = sc.args.firstOrNull { lit ->
+                    val l = lit.literal ?: return@firstOrNull false
+                    !l.startsWith("-")
+                }?.literal?.substringAfterLast('/')
+                invokedCmd == "rm" || invokedCmd == "unlink"
             }
-            return null
+            return if (match != null) hit(id, "Piped xargs delete: $cmd") else null
         }
     }
 
@@ -86,14 +114,15 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "git_reset_hard"
         override val name = "Git reset --hard"
         override val description = "Detects git reset --hard which discards uncommitted changes."
-        private val pattern = Regex("""\bgit\s+reset\s+--hard\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (pattern.containsMatchIn(cmd)) {
-                return hit(id, "Git hard reset: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                sc.commandName == "git" &&
+                    sc.hasLiteralArg("reset") &&
+                    sc.hasLongFlag("--hard")
             }
-            return null
+            return if (match != null) hit(id, "Git hard reset: $cmd") else null
         }
     }
 
@@ -101,17 +130,19 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "git_checkout_files"
         override val name = "Git checkout files"
         override val description = "Detects git checkout that overwrites working tree files."
-        private val branchFlag = Regex("""\bgit\s+checkout\s+-b\b""")
-        private val dashDash = Regex("""\bgit\s+checkout\s+--\s""")
-        private val dot = Regex("""\bgit\s+checkout\s+\.""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (branchFlag.containsMatchIn(cmd)) return null
-            if (dashDash.containsMatchIn(cmd) || dot.containsMatchIn(cmd)) {
-                return hit(id, "Git checkout overwrites files: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                if (sc.commandName != "git") return@firstOrNull false
+                if (!sc.hasLiteralArg("checkout")) return@firstOrNull false
+                if (sc.hasFlag(short = 'b') || sc.hasLongFlag("--branch")) return@firstOrNull false
+                // checkout . or checkout -- <file>
+                val hasDot = sc.hasLiteralArg(".")
+                val hasDashDash = sc.hasLiteralArg("--")
+                hasDot || hasDashDash
             }
-            return null
+            return if (match != null) hit(id, "Git checkout overwrites files: $cmd") else null
         }
     }
 
@@ -119,16 +150,16 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "git_clean_force"
         override val name = "Git clean -f"
         override val description = "Detects git clean -f which removes untracked files."
-        private val dryRun = Regex("""\bgit\s+clean\s+-[a-zA-Z]*n""")
-        private val force = Regex("""\bgit\s+clean\s+-[a-zA-Z]*f""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (dryRun.containsMatchIn(cmd)) return null
-            if (force.containsMatchIn(cmd)) {
-                return hit(id, "Git clean force: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                if (sc.commandName != "git" || !sc.hasLiteralArg("clean")) return@firstOrNull false
+                // Dry-run -n overrides force.
+                if (sc.hasFlag(short = 'n') || sc.hasLongFlag("--dry-run")) return@firstOrNull false
+                sc.hasFlag(short = 'f') || sc.hasLongFlag("--force")
             }
-            return null
+            return if (match != null) hit(id, "Git clean force: $cmd") else null
         }
     }
 
@@ -136,17 +167,15 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "git_push_force"
         override val name = "Git push --force"
         override val description = "Detects git push --force which overwrites remote history."
-        private val forceWithLease = Regex("""\bgit\s+push\b.*--force-with-lease\b""")
-        private val forceLong = Regex("""\bgit\s+push\b.*--force\b""")
-        private val forceShort = Regex("""\bgit\s+push\b.*\s-f\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (forceWithLease.containsMatchIn(cmd)) return null
-            if (forceLong.containsMatchIn(cmd) || forceShort.containsMatchIn(cmd)) {
-                return hit(id, "Git force push: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                if (sc.commandName != "git" || !sc.hasLiteralArg("push")) return@firstOrNull false
+                if (sc.hasLongFlag("--force-with-lease")) return@firstOrNull false
+                sc.hasLongFlag("--force") || sc.hasFlag(short = 'f')
             }
-            return null
+            return if (match != null) hit(id, "Git force push: $cmd") else null
         }
     }
 
@@ -154,14 +183,13 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "git_branch_force_delete"
         override val name = "Git branch -D"
         override val description = "Detects git branch -D which force-deletes a branch."
-        private val pattern = Regex("""\bgit\s+branch\s+-D\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (pattern.containsMatchIn(cmd)) {
-                return hit(id, "Git force delete branch: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                sc.commandName == "git" && sc.hasLiteralArg("branch") && sc.hasLiteralArg("-D")
             }
-            return null
+            return if (match != null) hit(id, "Git force delete branch: $cmd") else null
         }
     }
 
@@ -169,14 +197,14 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "git_stash_drop"
         override val name = "Git stash drop/clear"
         override val description = "Detects git stash drop or clear which permanently removes stashed changes."
-        private val pattern = Regex("""\bgit\s+stash\s+(drop|clear)\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (pattern.containsMatchIn(cmd)) {
-                return hit(id, "Git stash destruction: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                sc.commandName == "git" && sc.hasLiteralArg("stash") &&
+                    (sc.hasLiteralArg("drop") || sc.hasLiteralArg("clear"))
             }
-            return null
+            return if (match != null) hit(id, "Git stash destruction: $cmd") else null
         }
     }
 
@@ -184,15 +212,17 @@ object DestructiveCommandsModule : ProtectionModule {
         override val id = "truncate_dd"
         override val name = "Truncate or dd"
         override val description = "Detects truncate or dd of= which can destroy file contents."
-        private val truncatePattern = Regex("""\btruncate\b""")
-        private val ddPattern = Regex("""\bdd\b.*\bof=""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (truncatePattern.containsMatchIn(cmd) || ddPattern.containsMatchIn(cmd)) {
-                return hit(id, "Destructive file operation: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                when (sc.commandName) {
+                    "truncate" -> true
+                    "dd" -> sc.args.any { a -> a.literal?.startsWith("of=") == true }
+                    else -> false
+                }
             }
-            return null
+            return if (match != null) hit(id, "Destructive file operation: $cmd") else null
         }
     }
 }
