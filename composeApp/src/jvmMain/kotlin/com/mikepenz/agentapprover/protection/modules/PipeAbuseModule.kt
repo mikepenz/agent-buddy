@@ -6,6 +6,9 @@ import com.mikepenz.agentapprover.model.ProtectionMode
 import com.mikepenz.agentapprover.protection.CommandParser
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.protection.ProtectionRule
+import com.mikepenz.agentapprover.protection.parser.OpKind
+import com.mikepenz.agentapprover.protection.parser.SimpleCommand
+import com.mikepenz.agentapprover.protection.parser.allSimpleCommands
 
 object PipeAbuseModule : ProtectionModule {
     override val id = "pipe_abuse"
@@ -14,6 +17,8 @@ object PipeAbuseModule : ProtectionModule {
     override val corrective = false
     override val defaultMode = ProtectionMode.ASK_AUTO_BLOCK
     override val applicableTools = setOf("Bash")
+
+    private val scriptExtensions = setOf("sh", "py", "rb", "pl", "js", "bash")
 
     override val rules: List<ProtectionRule> = listOf(
         BulkPermissionChange,
@@ -27,16 +32,25 @@ object PipeAbuseModule : ProtectionModule {
         mode = defaultMode,
     )
 
+    private fun commands(hookInput: HookInput): Sequence<SimpleCommand> =
+        CommandParser.parsedBash(hookInput)?.allSimpleCommands() ?: emptySequence()
+
     private object BulkPermissionChange : ProtectionRule {
         override val id = "bulk_permission_change"
         override val name = "Bulk permission change via xargs"
         override val description = "Detects xargs chmod or xargs chown for bulk permission changes."
-        private val pattern = Regex("""\bxargs\s+(chmod|chown)\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pattern.containsMatchIn(cmd)) return null
-            return hit(id, "Bulk permission change via xargs: $cmd")
+            val match = commands(hookInput).firstOrNull { sc ->
+                if (sc.commandName != "xargs") return@firstOrNull false
+                val invoked = sc.args.firstOrNull { a ->
+                    val lit = a.literal ?: return@firstOrNull false
+                    !lit.startsWith("-")
+                }?.literal?.substringAfterLast('/')
+                invoked == "chmod" || invoked == "chown"
+            }
+            return if (match != null) hit(id, "Bulk permission change via xargs: $cmd") else null
         }
     }
 
@@ -44,25 +58,50 @@ object PipeAbuseModule : ProtectionModule {
         override val id = "write_then_execute"
         override val name = "Write then execute script"
         override val description = "Detects creating a script file and executing it in the same command chain."
-        private val writePattern = Regex("""(tee|cat\s+>)\s+(\S+\.(sh|py|rb|pl|js|bash))""")
-        private val chainSeparator = Regex("""&&|\|\||;""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            val writeMatch = writePattern.find(cmd) ?: return null
-            val filename = writeMatch.groupValues[2]
-            // Check if the filename appears after a chain separator
-            val afterWrite = cmd.substring(writeMatch.range.last + 1)
-            if (!chainSeparator.containsMatchIn(afterWrite)) return null
-            // Split on chain separators and check if the filename appears in any subsequent segment
-            val segments = chainSeparator.split(afterWrite)
-            val filenameBase = filename.substringAfterLast('/')
-            for (segment in segments) {
-                if (segment.contains(filename) || segment.contains(filenameBase)) {
-                    return hit(id, "Write then execute in same chain: $cmd")
+            val parsed = CommandParser.parsedBash(hookInput) ?: return null
+
+            // Materialize the command stream once so we can check temporal order by index.
+            val commands = parsed.allSimpleCommands().toList()
+            for ((writerIdx, writer) in commands.withIndex()) {
+                val writtenFile = writerScriptTarget(writer) ?: continue
+                val writtenBase = writtenFile.substringAfterLast('/')
+                // Only commands *after* the writer count as execution.
+                val executed = commands.subList(writerIdx + 1, commands.size).any { sc ->
+                    val nameBase = sc.commandName
+                    if (nameBase != null && nameBase == writtenBase) return@any true
+                    sc.args.any { a ->
+                        val lit = a.literal ?: return@any false
+                        lit == writtenFile || lit.substringAfterLast('/') == writtenBase
+                    }
                 }
+                if (executed) return hit(id, "Write then execute in same chain: $cmd")
             }
             return null
+        }
+
+        /** Returns the script filename written by [sc] via `cat > script.sh` / `tee script.sh`, or null. */
+        private fun writerScriptTarget(sc: SimpleCommand): String? {
+            return when (sc.commandName) {
+                "cat" -> {
+                    val target = sc.redirects.firstOrNull {
+                        it.op == OpKind.REDIR_OUT || it.op == OpKind.REDIR_APPEND
+                    }?.target?.literal
+                    target?.takeIf { isScript(it) }
+                }
+                "tee" -> sc.args
+                    .mapNotNull { it.literal }
+                    .firstOrNull { !it.startsWith("-") && isScript(it) }
+                else -> null
+            }
+        }
+
+        private fun isScript(lit: String?): Boolean {
+            if (lit == null) return false
+            val ext = lit.substringAfterLast('.', "").lowercase()
+            return ext in scriptExtensions
         }
     }
 }

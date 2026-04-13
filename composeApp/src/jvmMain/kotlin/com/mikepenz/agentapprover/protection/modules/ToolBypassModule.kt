@@ -6,6 +6,9 @@ import com.mikepenz.agentapprover.model.ProtectionMode
 import com.mikepenz.agentapprover.protection.CommandParser
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.protection.ProtectionRule
+import com.mikepenz.agentapprover.protection.parser.OpKind
+import com.mikepenz.agentapprover.protection.parser.SimpleCommand
+import com.mikepenz.agentapprover.protection.parser.allSimpleCommands
 
 object ToolBypassModule : ProtectionModule {
     override val id = "tool_bypass"
@@ -31,18 +34,19 @@ object ToolBypassModule : ProtectionModule {
         mode = defaultMode,
     )
 
+    private fun commands(hookInput: HookInput): Sequence<SimpleCommand> =
+        CommandParser.parsedBash(hookInput)?.allSimpleCommands() ?: emptySequence()
+
     private object SedInline : ProtectionRule {
         override val id = "sed_inline"
         override val name = "sed -i in-place editing"
         override val description = "Detects sed -i in-place file editing. Use the Edit/Write tool instead."
-        private val pattern = Regex("""\bsed\s+-i\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (pattern.containsMatchIn(cmd)) {
-                return hit(id, "sed -i in-place editing detected. Use the Edit/Write tool instead.")
+            val match = commands(hookInput).any { sc ->
+                sc.commandName == "sed" && (sc.hasFlag(short = 'i') || sc.hasLongFlag("--in-place"))
             }
-            return null
+            return if (match) hit(id, "sed -i in-place editing detected. Use the Edit/Write tool instead.") else null
         }
     }
 
@@ -50,14 +54,12 @@ object ToolBypassModule : ProtectionModule {
         override val id = "perl_inline"
         override val name = "perl -i in-place editing"
         override val description = "Detects perl -i or perl -pi -e in-place file editing. Use the Edit/Write tool instead."
-        private val pattern = Regex("""\bperl\s+(-[a-zA-Z]*i|-pi\s+-e)\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (pattern.containsMatchIn(cmd)) {
-                return hit(id, "perl in-place editing detected. Use the Edit/Write tool instead.")
+            val match = commands(hookInput).any { sc ->
+                sc.commandName == "perl" && sc.hasFlag(short = 'i')
             }
-            return null
+            return if (match) hit(id, "perl in-place editing detected. Use the Edit/Write tool instead.") else null
         }
     }
 
@@ -65,15 +67,17 @@ object ToolBypassModule : ProtectionModule {
         override val id = "python_file_write"
         override val name = "python -c file write"
         override val description = "Detects python -c with open() and write(). Use the Edit/Write tool instead."
-        private val pythonCPattern = Regex("""\bpython[23]?\s+-c\s""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (!pythonCPattern.containsMatchIn(cmd)) return null
-            if (cmd.contains("open(") && cmd.contains("write")) {
-                return hit(id, "python -c file write detected. Use the Edit/Write tool instead.")
+            val match = commands(hookInput).any { sc ->
+                val name = sc.commandName ?: return@any false
+                if (name != "python" && name != "python2" && name != "python3") return@any false
+                val idx = sc.args.indexOfFirst { it.literal == "-c" }
+                if (idx < 0 || idx + 1 >= sc.args.size) return@any false
+                val body = sc.args[idx + 1].literal ?: return@any false
+                body.contains("open(") && body.contains("write")
             }
-            return null
+            return if (match) hit(id, "python -c file write detected. Use the Edit/Write tool instead.") else null
         }
     }
 
@@ -81,14 +85,23 @@ object ToolBypassModule : ProtectionModule {
         override val id = "echo_redirect"
         override val name = "echo/printf redirect to file"
         override val description = "Detects echo or printf redirected to a file. Use the Edit/Write tool instead."
-        private val pattern = Regex("""\b(echo|printf)\b.*>\s*(\S+)""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            val match = pattern.find(cmd) ?: return null
-            val target = match.groupValues[2]
-            if (target == "/dev/null") return null
-            return hit(id, "echo/printf redirect to file detected. Use the Edit/Write tool instead.")
+            val match = commands(hookInput).any { sc ->
+                val name = sc.commandName ?: return@any false
+                if (name != "echo" && name != "printf") return@any false
+                sc.redirects.any { r ->
+                    when (r.op) {
+                        OpKind.REDIR_OUT, OpKind.REDIR_APPEND, OpKind.REDIR_FORCE_OUT,
+                        OpKind.REDIR_ALL_OUT, OpKind.REDIR_ALL_APPEND -> {
+                            val target = r.target.literal
+                            target != null && target != "/dev/null"
+                        }
+                        else -> false
+                    }
+                }
+            }
+            return if (match) hit(id, "echo/printf redirect to file detected. Use the Edit/Write tool instead.") else null
         }
     }
 
@@ -96,14 +109,17 @@ object ToolBypassModule : ProtectionModule {
         override val id = "tee_write"
         override val name = "tee to file"
         override val description = "Detects tee writing to a file. Use the Edit/Write tool instead."
-        private val pattern = Regex("""\btee\s+(\S+)""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            val match = pattern.find(cmd) ?: return null
-            val target = match.groupValues[1]
-            if (target == "/dev/null") return null
-            return hit(id, "tee to file detected. Use the Edit/Write tool instead.")
+            val match = commands(hookInput).any { sc ->
+                if (sc.commandName != "tee") return@any false
+                // Any positional (non-flag) arg that isn't /dev/null.
+                sc.args.any { a ->
+                    val lit = a.literal ?: return@any false
+                    !lit.startsWith("-") && lit != "/dev/null"
+                }
+            }
+            return if (match) hit(id, "tee to file detected. Use the Edit/Write tool instead.") else null
         }
     }
 
@@ -111,14 +127,23 @@ object ToolBypassModule : ProtectionModule {
         override val id = "bash_heredoc"
         override val name = "heredoc file write"
         override val description = "Detects cat or tee with heredoc writing to a file. Use the Edit/Write tool instead."
-        private val pattern = Regex("""\b(cat|tee)\s+>\s*\S+.*<<|(\bcat|\btee)\s+\S+.*<<""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (pattern.containsMatchIn(cmd)) {
-                return hit(id, "heredoc file write detected. Use the Edit/Write tool instead.")
+            val match = commands(hookInput).any { sc ->
+                if (sc.commandName != "cat" && sc.commandName != "tee") return@any false
+                val hasHeredoc = sc.redirects.any { it.op == OpKind.REDIR_HEREDOC }
+                if (!hasHeredoc) return@any false
+                // For cat: it must also have a file redirect target or be piped to a file.
+                // For tee: the positional arg is the target.
+                if (sc.commandName == "tee") {
+                    sc.args.any { a -> a.literal?.startsWith("-") != true }
+                } else {
+                    sc.redirects.any { r ->
+                        (r.op == OpKind.REDIR_OUT || r.op == OpKind.REDIR_APPEND) && r.target.literal != null
+                    }
+                }
             }
-            return null
+            return if (match) hit(id, "heredoc file write detected. Use the Edit/Write tool instead.") else null
         }
     }
 }

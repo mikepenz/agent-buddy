@@ -6,6 +6,9 @@ import com.mikepenz.agentapprover.model.ProtectionMode
 import com.mikepenz.agentapprover.protection.CommandParser
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.protection.ProtectionRule
+import com.mikepenz.agentapprover.protection.parser.Pipeline
+import com.mikepenz.agentapprover.protection.parser.allPipelines
+import com.mikepenz.agentapprover.protection.parser.effectiveCommands
 
 object PipedTailHeadModule : ProtectionModule {
     override val id = "piped_tail_head"
@@ -31,44 +34,8 @@ object PipedTailHeadModule : ProtectionModule {
         "xargs", "jq", "yq",
     )
 
-    /** Splits on single pipe `|` but not logical OR `||` or pipe-stderr `|&`. */
-    private val singlePipePattern = Regex("""(?<!\|)\|(?!\||&)""")
-
-    /** Matches command chain separators: `;`, `&&`, `||`. */
-    private val chainSeparator = Regex(""";|&&|\|\|""")
-
-    /** Grep-family commands that allow the pipeline only when they appear immediately before head/tail. */
+    /** Grep-family commands. If any appears in the pipeline before head/tail the pipeline is allowed. */
     private val grepCommands = setOf("grep", "egrep", "fgrep", "rg", "ag")
-
-    /** Extracts the command name from a pipeline segment, skipping env assignments. */
-    private fun segmentCommand(segment: String): String? {
-        val trimmed = segment.trim()
-        if (trimmed.isEmpty()) return null
-        val tokens = trimmed.split(Regex("""\s+"""))
-        val cmdToken = tokens.firstOrNull { !it.contains('=') } ?: return null
-        return cmdToken.substringAfterLast('/')
-    }
-
-    /**
-     * Returns true if every command before the final tail/head is fast, OR if the segment
-     * immediately before the tail/head is a grep-family command (grep limits its own output,
-     * so tail/head directly after grep is fine regardless of upstream cost).
-     */
-    private fun allPipeSegmentsFast(fullCmd: String, pipeMatch: MatchResult): Boolean {
-        val beforeFinalPipe = fullCmd.substring(0, pipeMatch.range.first)
-        // Isolate the command chain segment containing this pipe by finding the last chain separator
-        val lastSep = chainSeparator.findAll(beforeFinalPipe).lastOrNull()
-        val pipelineStr = if (lastSep != null) {
-            beforeFinalPipe.substring(lastSep.range.last + 1)
-        } else {
-            beforeFinalPipe
-        }
-        val segments = singlePipePattern.split(pipelineStr)
-        val commands = segments.map { segmentCommand(it) }
-        if (commands.any { it == null }) return false
-        if (commands.lastOrNull() in grepCommands) return true
-        return commands.all { it in fastCommands }
-    }
 
     private fun hit(ruleId: String, message: String) = ProtectionHit(
         moduleId = id,
@@ -77,20 +44,39 @@ object PipedTailHeadModule : ProtectionModule {
         mode = defaultMode,
     )
 
+    /**
+     * True iff the pipeline is allowed: every upstream command is in the fast-list, OR the
+     * command immediately before the target is a grep-family command (which limits output
+     * regardless of upstream cost). Opaque command names (variables, substitutions) are treated
+     * as non-fast — fail closed. Commands are unwrapped through `sudo`/`doas`.
+     */
+    private fun isAllowedPipeline(p: Pipeline, target: String): Boolean {
+        val commands = p.effectiveCommands()
+        val tailIdx = commands.indexOfLast { it.commandName == target }
+        if (tailIdx <= 0) return true
+        val upstream = commands.subList(0, tailIdx)
+        if (upstream.lastOrNull()?.commandName in grepCommands) return true
+        return upstream.all { it.commandName in fastCommands }
+    }
+
+    private fun offendingPipeline(hookInput: HookInput, target: String): Boolean {
+        val parsed = CommandParser.parsedBash(hookInput) ?: return false
+        return parsed.allPipelines().any { p ->
+            val cmds = p.effectiveCommands()
+            val tailIdx = cmds.indexOfLast { it.commandName == target }
+            if (tailIdx <= 0) false else !isAllowedPipeline(p, target)
+        }
+    }
+
     private object PipedTail : ProtectionRule {
         override val id = "piped_tail"
         override val name = "tail on piped input"
         override val description = "Detects tail receiving output from slow/expensive commands via a pipe."
         override val correctiveHint =
             "Instead of piping to tail, use a temp file: `_out=\$(mktemp) && command > \$_out 2>&1 && tail -n 20 \$_out`"
-        private val pattern = Regex("""\|\s*tail\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            val hasNonFastPipeline = pattern.findAll(cmd).any { match ->
-                !allPipeSegmentsFast(cmd, match)
-            }
-            if (!hasNonFastPipeline) return null
+            if (!offendingPipeline(hookInput, "tail")) return null
             return hit(
                 id,
                 "tail on piped input detected. Use a temp file: `_out=\$(mktemp) && command > \$_out 2>&1 && tail -n 20 \$_out`",
@@ -104,14 +90,9 @@ object PipedTailHeadModule : ProtectionModule {
         override val description = "Detects head receiving output from slow/expensive commands via a pipe."
         override val correctiveHint =
             "Instead of piping to head, use a temp file: `_out=\$(mktemp) && command > \$_out 2>&1 && head -n 20 \$_out`"
-        private val pattern = Regex("""\|\s*head\b""")
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
-            val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            val hasNonFastPipeline = pattern.findAll(cmd).any { match ->
-                !allPipeSegmentsFast(cmd, match)
-            }
-            if (!hasNonFastPipeline) return null
+            if (!offendingPipeline(hookInput, "head")) return null
             return hit(
                 id,
                 "head on piped input detected. Use a temp file: `_out=\$(mktemp) && command > \$_out 2>&1 && head -n 20 \$_out`",
