@@ -37,7 +37,7 @@ object PipedTailHeadModule : ProtectionModule {
     /** Matches command chain separators: `;`, `&&`, `||`. */
     private val chainSeparator = Regex(""";|&&|\|\|""")
 
-    /** Grep-family commands. If any appears in the pipeline before head/tail, the pipeline is allowed. */
+    /** Grep-family commands that allow the pipeline only when they appear immediately before head/tail. */
     private val grepCommands = setOf("grep", "egrep", "fgrep", "rg", "ag")
 
     /** Extracts the command name from a pipeline segment, skipping env assignments. */

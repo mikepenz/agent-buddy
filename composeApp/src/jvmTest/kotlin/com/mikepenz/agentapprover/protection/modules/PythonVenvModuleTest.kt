@@ -85,6 +85,28 @@ class PythonVenvModuleTest {
         )
     }
 
+    @Test
+    fun barePythonBeforeUvRunPythonBlocked() {
+        // An earlier bare python must not be masked by a later allowed uv run python.
+        assertNotNull(
+            evaluateRule("bare_python", "python main.py && uv run python other.py")
+        )
+    }
+
+    @Test
+    fun barePipBeforeUvPipInstallBlocked() {
+        assertNotNull(
+            evaluateRule("bare_pip", "pip install x && uv pip install y")
+        )
+    }
+
+    @Test
+    fun uvRunPythonThenBarePythonBlocked() {
+        assertNotNull(
+            evaluateRule("bare_python", "uv run python first.py && python second.py")
+        )
+    }
+
     // --- bare_pip ---
 
     @Test

@@ -28,6 +28,15 @@ object PythonVenvModule : ProtectionModule {
     private fun activatedBefore(cmd: String, targetStart: Int): Boolean =
         venvActivatePattern.findAll(cmd).any { it.range.last < targetStart }
 
+    /** True if the start of [matchRange] falls inside any range produced by [allowPatterns]. */
+    private fun isAllowedByPattern(
+        cmd: String,
+        matchRange: IntRange,
+        allowPatterns: List<Regex>,
+    ): Boolean = allowPatterns.any { allow ->
+        allow.findAll(cmd).any { it.range.first <= matchRange.first && it.range.last >= matchRange.first }
+    }
+
     private fun hit(ruleId: String, message: String) = ProtectionHit(
         moduleId = id,
         ruleId = ruleId,
@@ -49,10 +58,14 @@ object PythonVenvModule : ProtectionModule {
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            val match = pattern.find(cmd) ?: return null
-            if (allowPatterns.any { it.containsMatchIn(cmd) }) return null
-            if (activatedBefore(cmd, match.range.first)) return null
-            return hit(id, "Use .venv/bin/python or uv run python instead. Create a venv with: uv venv")
+            val offending = pattern.findAll(cmd).firstOrNull { match ->
+                !isAllowedByPattern(cmd, match.range, allowPatterns) &&
+                    !activatedBefore(cmd, match.range.first)
+            } ?: return null
+            return hit(
+                id,
+                "Use .venv/bin/python or uv run python instead. Create a venv with: uv venv (at: ${offending.value.trim()})",
+            )
         }
     }
 
@@ -63,14 +76,16 @@ object PythonVenvModule : ProtectionModule {
         override val correctiveHint = "Use uv pip install or activate a virtual environment first. Create one with: uv venv && source .venv/bin/activate"
         private val pipPattern = Regex("""\b(pip|pip3)\s+install\b""")
         private val pythonMPipPattern = Regex("""\bpython[23]?\s+-m\s+pip\s+install\b""")
-        private val allowPattern = Regex("""\buv\s+pip\s+install\b""")
+        private val allowPatterns = listOf(Regex("""\buv\s+pip\s+install\b"""))
 
         override fun evaluate(hookInput: HookInput): ProtectionHit? {
             val cmd = CommandParser.bashCommand(hookInput) ?: return null
-            if (allowPattern.containsMatchIn(cmd)) return null
-            val match = pipPattern.find(cmd) ?: pythonMPipPattern.find(cmd) ?: return null
-            if (activatedBefore(cmd, match.range.first)) return null
-            return hit(id, "Use uv pip install or activate a venv first.")
+            val allMatches = pipPattern.findAll(cmd) + pythonMPipPattern.findAll(cmd)
+            val offending = allMatches.firstOrNull { match ->
+                !isAllowedByPattern(cmd, match.range, allowPatterns) &&
+                    !activatedBefore(cmd, match.range.first)
+            } ?: return null
+            return hit(id, "Use uv pip install or activate a venv first (at: ${offending.value.trim()})")
         }
     }
 
