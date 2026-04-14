@@ -62,7 +62,16 @@ object CopilotBridgeInstaller {
     // PascalCase variant doesn't fire from this location.
     private const val HOOK_PRE_TOOL_USE_KEY = "preToolUse"
     private const val HOOK_PERMISSION_REQUEST_KEY = "permissionRequest"
-    private const val HOOK_USER_PROMPT_SUBMITTED_KEY = "userPromptSubmitted"
+
+    // Capability context injection is wired to `sessionStart` — NOT
+    // `userPromptSubmitted` — because Copilot CLI's command-type
+    // `userPromptSubmitted` hook runner ignores stdout entirely: its output
+    // parser in the bundled app.js is literally `a => {}` (empty block,
+    // returns undefined), so any `additionalContext` we print is discarded.
+    // `sessionStart`'s parser does honor `additionalContext`, and the
+    // returned text is prepended as a user message for the whole session,
+    // which matches the "inject once, stay in effect" semantics we want.
+    private const val HOOK_SESSION_START_KEY = "sessionStart"
 
     private const val HOOK_FILE_NAME = "agent-approver.json"
 
@@ -174,7 +183,7 @@ object CopilotBridgeInstaller {
      *
      * Preserves any capability hook entry already present: if the capability
      * bridge script exists on disk, the rewritten hook file keeps the
-     * `userPromptSubmitted` entry alongside the approval entries.
+     * `sessionStart` entry alongside the approval entries.
      */
     fun register(port: Int) {
         installScripts(port)
@@ -189,7 +198,7 @@ object CopilotBridgeInstaller {
 
     /**
      * True iff the capability bridge script exists and is executable AND the
-     * hook file contains a `userPromptSubmitted` entry pointing at it.
+     * hook file contains a `sessionStart` entry pointing at it.
      */
     fun isCapabilityHookRegistered(@Suppress("UNUSED_PARAMETER") port: Int): Boolean {
         val cap = capabilityScriptFile()
@@ -199,7 +208,7 @@ object CopilotBridgeInstaller {
         return try {
             val root = json.parseToJsonElement(hooks.readText()).jsonObject
             val hooksObj = root["hooks"]?.jsonObject ?: return false
-            hasHookEntry(hooksObj, HOOK_USER_PROMPT_SUBMITTED_KEY, capabilityScriptPath())
+            hasHookEntry(hooksObj, HOOK_SESSION_START_KEY, capabilityScriptPath())
         } catch (e: Exception) {
             logger.w(e) { "Failed to read $HOOK_FILE_NAME" }
             false
@@ -207,7 +216,7 @@ object CopilotBridgeInstaller {
     }
 
     /**
-     * Installs the capability bridge script and adds a `userPromptSubmitted`
+     * Installs the capability bridge script and adds a `sessionStart`
      * entry to the hook file. The approval entries (if any) are preserved.
      * Idempotent.
      */
@@ -221,7 +230,7 @@ object CopilotBridgeInstaller {
 
     /**
      * Removes the capability bridge script and rewrites the hook file without
-     * the `userPromptSubmitted` entry. If that leaves the hook file with no
+     * the `sessionStart` entry. If that leaves the hook file with no
      * entries at all (no approval scripts either), the file is deleted.
      */
     fun unregisterCapabilityHook(@Suppress("UNUSED_PARAMETER") port: Int) {
@@ -335,7 +344,7 @@ object CopilotBridgeInstaller {
                     put(HOOK_PERMISSION_REQUEST_KEY, buildJsonArray { add(buildHookEntry(permissionRequestScriptPath())) })
                 }
                 if (includeCapability) {
-                    put(HOOK_USER_PROMPT_SUBMITTED_KEY, buildJsonArray { add(buildHookEntry(capabilityScriptPath())) })
+                    put(HOOK_SESSION_START_KEY, buildJsonArray { add(buildHookEntry(capabilityScriptPath())) })
                 }
             })
         }

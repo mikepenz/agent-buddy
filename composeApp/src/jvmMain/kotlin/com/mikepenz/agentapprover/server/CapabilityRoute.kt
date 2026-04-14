@@ -59,15 +59,16 @@ fun Route.capabilityRoute(engine: CapabilityEngine) {
             call.respondText("{}", contentType = ContentType.Application.Json)
             return@post
         }
-        // Copilot CLI's userPromptSubmitted hook reads stdout as injected
-        // context. The bridge script pipes this JSON back, and Copilot CLI
-        // honors `hookSpecificOutput.additionalContext` the same way Claude
-        // Code does for its PascalCase equivalent.
+        // Copilot CLI's `sessionStart` command-type hook reads a flat
+        // `{ additionalContext }` from the bridge script's stdout. We
+        // intentionally do NOT bind this to `userPromptSubmitted`: in the
+        // bundled Copilot runtime, that event's output parser is literally
+        // `a => {}` (returns undefined), so any text we print there is
+        // discarded. `sessionStart` fires once per session and its parser
+        // honors `additionalContext`, which is prepended as a user message
+        // for the whole session — matching "inject once, stay in effect".
         val body = buildJsonObject {
-            put("hookSpecificOutput", buildJsonObject {
-                put("hookEventName", "userPromptSubmitted")
-                put("additionalContext", text)
-            })
+            put("additionalContext", text)
         }.toString()
         call.respondText(body, contentType = ContentType.Application.Json)
         logger.v { "Served capability injection (${text.length} chars) to Copilot CLI" }
