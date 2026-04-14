@@ -1,5 +1,6 @@
 package com.mikepenz.agentapprover.app
 
+import com.mikepenz.agentapprover.capability.CapabilityEngine
 import com.mikepenz.agentapprover.di.AppScope
 import com.mikepenz.agentapprover.protection.ProtectionEngine
 import com.mikepenz.agentapprover.server.ApprovalServer
@@ -25,6 +26,7 @@ import java.net.BindException
 class ApprovalServerRunner(
     private val stateManager: AppStateManager,
     private val protectionEngine: ProtectionEngine,
+    private val capabilityEngine: CapabilityEngine,
     private val databaseStorage: DatabaseStorage,
 ) {
     private var server: ApprovalServer? = null
@@ -43,6 +45,7 @@ class ApprovalServerRunner(
         val newServer = ApprovalServer(
             stateManager = stateManager,
             protectionEngine = protectionEngine,
+            capabilityEngine = capabilityEngine,
             databaseStorage = databaseStorage,
             onNewApproval = { onNewApproval() },
         )

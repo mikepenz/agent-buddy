@@ -43,9 +43,11 @@ object CopilotBridgeInstaller {
 
     private const val PRE_TOOL_USE_SCRIPT_NAME = "copilot-hook.sh"
     private const val PERMISSION_REQUEST_SCRIPT_NAME = "copilot-approve.sh"
+    private const val CAPABILITY_SCRIPT_NAME = "copilot-capability.sh"
 
     private const val PRE_TOOL_USE_ENDPOINT = "pre-tool-use-copilot"
     private const val PERMISSION_REQUEST_ENDPOINT = "approve-copilot"
+    private const val CAPABILITY_ENDPOINT = "capability/inject-copilot"
 
     // Hook event keys in Copilot CLI hooks.json. We use **camelCase** because
     // every documented example and every working in-the-wild user-scoped hook
@@ -60,6 +62,7 @@ object CopilotBridgeInstaller {
     // PascalCase variant doesn't fire from this location.
     private const val HOOK_PRE_TOOL_USE_KEY = "preToolUse"
     private const val HOOK_PERMISSION_REQUEST_KEY = "permissionRequest"
+    private const val HOOK_USER_PROMPT_SUBMITTED_KEY = "userPromptSubmitted"
 
     private const val HOOK_FILE_NAME = "agent-approver.json"
 
@@ -70,6 +73,7 @@ object CopilotBridgeInstaller {
 
     private fun preToolUseScriptFile(): File = File(scriptDir(), PRE_TOOL_USE_SCRIPT_NAME)
     private fun permissionRequestScriptFile(): File = File(scriptDir(), PERMISSION_REQUEST_SCRIPT_NAME)
+    private fun capabilityScriptFile(): File = File(scriptDir(), CAPABILITY_SCRIPT_NAME)
 
     private fun hookFile(): File {
         val home = System.getProperty("user.home")
@@ -80,6 +84,7 @@ object CopilotBridgeInstaller {
     // so Copilot CLI can resolve them regardless of cwd.
     private fun preToolUseScriptPath(): String = preToolUseScriptFile().absolutePath
     private fun permissionRequestScriptPath(): String = permissionRequestScriptFile().absolutePath
+    private fun capabilityScriptPath(): String = capabilityScriptFile().absolutePath
 
     /**
      * Renders a bridge script that POSTs the stdin payload to the given
@@ -166,11 +171,77 @@ object CopilotBridgeInstaller {
      * Installs (or refreshes) the bridge scripts and writes the user-scoped
      * hook config. Idempotent — safe to call repeatedly. The [port] is baked
      * into the bridge scripts so the hook target matches the running server.
+     *
+     * Preserves any capability hook entry already present: if the capability
+     * bridge script exists on disk, the rewritten hook file keeps the
+     * `userPromptSubmitted` entry alongside the approval entries.
      */
     fun register(port: Int) {
         installScripts(port)
-        writeHookFile()
+        val keepCapability = capabilityScriptFile().exists()
+        if (keepCapability) {
+            // Refresh the capability script so its baked-in port matches.
+            writeCapabilityScript(port)
+        }
+        writeHookFile(includeCapability = keepCapability)
         logger.i { "Registered Copilot user-scoped hook for port $port" }
+    }
+
+    /**
+     * True iff the capability bridge script exists and is executable AND the
+     * hook file contains a `userPromptSubmitted` entry pointing at it.
+     */
+    fun isCapabilityHookRegistered(@Suppress("UNUSED_PARAMETER") port: Int): Boolean {
+        val cap = capabilityScriptFile()
+        if (!cap.exists() || !cap.canExecute()) return false
+        val hooks = hookFile()
+        if (!hooks.exists()) return false
+        return try {
+            val root = json.parseToJsonElement(hooks.readText()).jsonObject
+            val hooksObj = root["hooks"]?.jsonObject ?: return false
+            hasHookEntry(hooksObj, HOOK_USER_PROMPT_SUBMITTED_KEY, capabilityScriptPath())
+        } catch (e: Exception) {
+            logger.w(e) { "Failed to read $HOOK_FILE_NAME" }
+            false
+        }
+    }
+
+    /**
+     * Installs the capability bridge script and adds a `userPromptSubmitted`
+     * entry to the hook file. The approval entries (if any) are preserved.
+     * Idempotent.
+     */
+    fun registerCapabilityHook(port: Int) {
+        writeCapabilityScript(port)
+        // Preserve existing approval hooks if their scripts are still on disk.
+        val keepApproval = preToolUseScriptFile().exists() && permissionRequestScriptFile().exists()
+        writeHookFile(includeApproval = keepApproval, includeCapability = true)
+        logger.i { "Registered Copilot capability hook for port $port" }
+    }
+
+    /**
+     * Removes the capability bridge script and rewrites the hook file without
+     * the `userPromptSubmitted` entry. If that leaves the hook file with no
+     * entries at all (no approval scripts either), the file is deleted.
+     */
+    fun unregisterCapabilityHook(@Suppress("UNUSED_PARAMETER") port: Int) {
+        val cap = capabilityScriptFile()
+        if (cap.exists()) {
+            cap.delete()
+            logger.i { "Removed capability bridge script ${cap.absolutePath}" }
+        }
+        val keepApproval = preToolUseScriptFile().exists() && permissionRequestScriptFile().exists()
+        if (keepApproval) {
+            writeHookFile(includeApproval = true, includeCapability = false)
+        } else {
+            // Nothing left to write — delete the hook file to match the
+            // "empty state" invariant maintained by unregister().
+            val hooks = hookFile()
+            if (hooks.exists()) {
+                hooks.delete()
+                logger.i { "Removed ${hooks.absolutePath} (no entries left)" }
+            }
+        }
     }
 
     /**
@@ -187,11 +258,14 @@ object CopilotBridgeInstaller {
         }
 
         val hooks = hookFile()
-        if (hooks.exists()) {
-            // Since the file is owned by Agent Approver (its name is
-            // agent-approver.json), simply delete it. We don't need to
-            // surgically rewrite — there's no risk of clobbering another
-            // tool's hooks.
+        val keepCapability = capabilityScriptFile().exists()
+        if (keepCapability) {
+            // Capability is still enabled — rewrite the file with just the
+            // capability entry instead of deleting it.
+            writeHookFile(includeApproval = false, includeCapability = true)
+        } else if (hooks.exists()) {
+            // Nothing left — delete the file entirely. Safe because
+            // agent-approver.json is owned by us.
             hooks.delete()
             logger.i { "Removed ${hooks.absolutePath}" }
         }
@@ -237,15 +311,32 @@ object CopilotBridgeInstaller {
         logger.i { "Installed bridge script ${perm.absolutePath}" }
     }
 
-    private fun writeHookFile() {
+    private fun writeCapabilityScript(port: Int) {
+        val dir = scriptDir()
+        dir.mkdirs()
+        val cap = capabilityScriptFile()
+        cap.writeText(buildScriptContent(CAPABILITY_ENDPOINT, port))
+        cap.setExecutable(true)
+        logger.i { "Installed bridge script ${cap.absolutePath}" }
+    }
+
+    private fun writeHookFile(
+        includeApproval: Boolean = true,
+        includeCapability: Boolean = false,
+    ) {
         val file = hookFile()
         file.parentFile.mkdirs()
 
         val root = buildJsonObject {
             put("version", 1)
             put("hooks", buildJsonObject {
-                put(HOOK_PRE_TOOL_USE_KEY, buildJsonArray { add(buildHookEntry(preToolUseScriptPath())) })
-                put(HOOK_PERMISSION_REQUEST_KEY, buildJsonArray { add(buildHookEntry(permissionRequestScriptPath())) })
+                if (includeApproval) {
+                    put(HOOK_PRE_TOOL_USE_KEY, buildJsonArray { add(buildHookEntry(preToolUseScriptPath())) })
+                    put(HOOK_PERMISSION_REQUEST_KEY, buildJsonArray { add(buildHookEntry(permissionRequestScriptPath())) })
+                }
+                if (includeCapability) {
+                    put(HOOK_USER_PROMPT_SUBMITTED_KEY, buildJsonArray { add(buildHookEntry(capabilityScriptPath())) })
+                }
             })
         }
         file.writeText(json.encodeToString(JsonElement.serializer(), root))

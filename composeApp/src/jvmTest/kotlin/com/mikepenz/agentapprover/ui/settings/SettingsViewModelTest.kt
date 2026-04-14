@@ -1,7 +1,9 @@
 package com.mikepenz.agentapprover.ui.settings
 
+import com.mikepenz.agentapprover.capability.CapabilityEngine
 import com.mikepenz.agentapprover.hook.CopilotBridge
 import com.mikepenz.agentapprover.hook.HookRegistry
+import com.mikepenz.agentapprover.model.CapabilitySettings
 import com.mikepenz.agentapprover.model.ModuleSettings
 import com.mikepenz.agentapprover.model.ProtectionMode
 import com.mikepenz.agentapprover.model.ProtectionSettings
@@ -58,6 +60,11 @@ class SettingsViewModelTest {
             unregisterCalls++
             registeredPorts.remove(port)
         }
+
+        val capabilityHookPorts: MutableSet<Int> = mutableSetOf()
+        override fun isCapabilityHookRegistered(port: Int): Boolean = port in capabilityHookPorts
+        override fun registerCapabilityHook(port: Int) { capabilityHookPorts.add(port) }
+        override fun unregisterCapabilityHook(port: Int) { capabilityHookPorts.remove(port) }
     }
 
     private class FakeHookRegistry(
@@ -79,6 +86,11 @@ class SettingsViewModelTest {
             unregisterCalls++
             registeredPorts.remove(port)
         }
+
+        val capabilityHookPorts: MutableSet<Int> = mutableSetOf()
+        override fun isCapabilityHookRegistered(port: Int): Boolean = port in capabilityHookPorts
+        override fun registerCapabilityHook(port: Int) { capabilityHookPorts.add(port) }
+        override fun unregisterCapabilityHook(port: Int) { capabilityHookPorts.remove(port) }
     }
 
     private fun newVm(
@@ -89,12 +101,14 @@ class SettingsViewModelTest {
     ): Triple<SettingsViewModel, AppStateManager, FakeHookRegistry> {
         val state = AppStateManager()
         val engine = ProtectionEngine(modules = emptyList(), settingsProvider = { ProtectionSettings() })
+        val capEngine = CapabilityEngine(modules = emptyList(), settingsProvider = { state.state.value.settings.capabilitySettings })
         val vm = SettingsViewModel(
             stateManager = state,
             copilotBridge = bridge,
             copilotStateHolder = copilotState,
             ollamaStateHolder = ollamaState,
             protectionEngine = engine,
+            capabilityEngine = capEngine,
             hookRegistry = registry,
             ioDispatcher = mainDispatcher, // run "IO" on the test dispatcher so runCurrent advances it
         )

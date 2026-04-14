@@ -147,6 +147,51 @@ class HookRegistrarTest {
     }
 
     @Test
+    fun registerCapabilityHookAddsUserPromptSubmitEntry() {
+        HookRegistrar.registerCapabilityHook(port)
+        assertTrue(HookRegistrar.isCapabilityHookRegistered(port))
+
+        val root = Json.parseToJsonElement(settingsFile.readText()).jsonObject
+        val hooks = root["hooks"]!!.jsonObject
+        val upsEntries = hooks["UserPromptSubmit"]!!.jsonArray
+        assertTrue(upsEntries.isNotEmpty())
+        val upsHook = upsEntries[0].jsonObject["hooks"]!!.jsonArray[0].jsonObject
+        assertTrue(upsHook["url"].toString().contains("/capability/inject"))
+    }
+
+    @Test
+    fun registerCapabilityHookIsIdempotent() {
+        HookRegistrar.registerCapabilityHook(port)
+        HookRegistrar.registerCapabilityHook(port)
+        val root = Json.parseToJsonElement(settingsFile.readText()).jsonObject
+        val hooks = root["hooks"]!!.jsonObject
+        val upsEntries = hooks["UserPromptSubmit"]!!.jsonArray
+        assertTrue(upsEntries.size == 1)
+    }
+
+    @Test
+    fun unregisterCapabilityHookRemovesEntryButLeavesApprovalHooksIntact() {
+        HookRegistrar.register(port)
+        HookRegistrar.registerCapabilityHook(port)
+        assertTrue(HookRegistrar.isCapabilityHookRegistered(port))
+        assertTrue(HookRegistrar.isRegistered(port))
+
+        HookRegistrar.unregisterCapabilityHook(port)
+        assertFalse(HookRegistrar.isCapabilityHookRegistered(port))
+        // Approval hooks must survive untouched.
+        assertTrue(HookRegistrar.isRegistered(port))
+    }
+
+    @Test
+    fun fullUnregisterRemovesCapabilityHookToo() {
+        HookRegistrar.register(port)
+        HookRegistrar.registerCapabilityHook(port)
+        HookRegistrar.unregister(port)
+        assertFalse(HookRegistrar.isRegistered(port))
+        assertFalse(HookRegistrar.isCapabilityHookRegistered(port))
+    }
+
+    @Test
     fun unregisterPreservesOtherHookEvents() {
         // Register, then add another hook event, then unregister
         settingsFile.parentFile.mkdirs()

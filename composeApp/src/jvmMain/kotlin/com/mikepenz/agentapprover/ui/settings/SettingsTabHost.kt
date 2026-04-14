@@ -36,5 +36,7 @@ fun SettingsTabHost(onShowLicenses: () -> Unit) {
         onShowLicenses = onShowLicenses,
         protectionModules = viewModel.protectionModules,
         onProtectionSettingsChange = viewModel::updateProtectionSettings,
+        capabilityModules = viewModel.capabilityModules,
+        onCapabilitySettingsChange = viewModel::updateCapabilitySettings,
     )
 }

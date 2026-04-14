@@ -1,5 +1,7 @@
 package com.mikepenz.agentapprover.server
 
+import com.mikepenz.agentapprover.capability.CapabilityEngine
+import com.mikepenz.agentapprover.model.CapabilitySettings
 import com.mikepenz.agentapprover.model.Decision
 import com.mikepenz.agentapprover.model.ProtectionSettings
 import com.mikepenz.agentapprover.protection.ProtectionEngine
@@ -37,9 +39,14 @@ class DisconnectDetectionTest {
             modules = emptyList(),
             settingsProvider = { ProtectionSettings() },
         )
+        val capabilityEngine = CapabilityEngine(
+            modules = emptyList(),
+            settingsProvider = { CapabilitySettings() },
+        )
         server = ApprovalServer(
             stateManager = stateManager,
             protectionEngine = protectionEngine,
+            capabilityEngine = capabilityEngine,
             databaseStorage = null,
             onNewApproval = {},
         )

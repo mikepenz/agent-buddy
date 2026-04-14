@@ -15,6 +15,15 @@ interface HookRegistry {
     fun isRegistered(port: Int): Boolean
     fun register(port: Int)
     fun unregister(port: Int)
+
+    /** True iff the capability `UserPromptSubmit` hook is registered for this port. */
+    fun isCapabilityHookRegistered(port: Int): Boolean
+
+    /** Adds our `UserPromptSubmit` hook entry. Idempotent. */
+    fun registerCapabilityHook(port: Int)
+
+    /** Removes our `UserPromptSubmit` hook entry. */
+    fun unregisterCapabilityHook(port: Int)
 }
 
 /** Production-only delegate to the [HookRegistrar] object. */
@@ -22,4 +31,8 @@ object DefaultHookRegistry : HookRegistry {
     override fun isRegistered(port: Int): Boolean = HookRegistrar.isRegistered(port)
     override fun register(port: Int) = HookRegistrar.register(port)
     override fun unregister(port: Int) = HookRegistrar.unregister(port)
+    override fun isCapabilityHookRegistered(port: Int): Boolean =
+        HookRegistrar.isCapabilityHookRegistered(port)
+    override fun registerCapabilityHook(port: Int) = HookRegistrar.registerCapabilityHook(port)
+    override fun unregisterCapabilityHook(port: Int) = HookRegistrar.unregisterCapabilityHook(port)
 }

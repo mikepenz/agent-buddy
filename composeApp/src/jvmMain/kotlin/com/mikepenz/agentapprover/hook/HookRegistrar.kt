@@ -47,6 +47,8 @@ object HookRegistrar {
 
     private fun postToolUseUrl(port: Int): String = "http://localhost:$port/post-tool-use"
 
+    private fun userPromptSubmitUrl(port: Int): String = "http://localhost:$port/capability/inject"
+
     private fun hasHook(hooks: JsonObject, event: String, url: String): Boolean {
         val entries = hooks[event]?.jsonArray ?: return false
         return entries.any { entry ->
@@ -157,6 +159,129 @@ object HookRegistrar {
         logger.i { "Registered hooks for port $port" }
     }
 
+    /**
+     * Returns true iff a `UserPromptSubmit` hook entry pointing at our
+     * capability injection endpoint already exists in the user's settings
+     * file. Used by the Capabilities settings UI to show the right state.
+     */
+    fun isCapabilityHookRegistered(port: Int): Boolean {
+        val file = settingsFile()
+        if (!file.exists()) return false
+        return try {
+            val root = json.parseToJsonElement(file.readText()).jsonObject
+            val hooks = root["hooks"]?.jsonObject ?: return false
+            hasHook(hooks, "UserPromptSubmit", userPromptSubmitUrl(port))
+        } catch (e: Exception) {
+            logger.w(e) { "Failed to read settings.json" }
+            false
+        }
+    }
+
+    /**
+     * Adds a `UserPromptSubmit` hook entry pointing at the capability
+     * injection endpoint. Idempotent — safe to call on every toggle. Leaves
+     * all other hook events (PermissionRequest / PreToolUse / PostToolUse)
+     * untouched.
+     */
+    fun registerCapabilityHook(port: Int) {
+        val file = settingsFile()
+
+        val root: JsonObject = if (file.exists()) {
+            try {
+                json.parseToJsonElement(file.readText()).jsonObject
+            } catch (e: Exception) {
+                logger.w(e) { "Failed to parse settings.json, starting fresh" }
+                JsonObject(emptyMap())
+            }
+        } else {
+            JsonObject(emptyMap())
+        }
+
+        val existingHooks = root["hooks"]?.jsonObject ?: JsonObject(emptyMap())
+        val upsUrl = userPromptSubmitUrl(port)
+        if (hasHook(existingHooks, "UserPromptSubmit", upsUrl)) {
+            logger.i { "Capability hook already registered for port $port" }
+            return
+        }
+
+        val upsList = existingHooks["UserPromptSubmit"]?.jsonArray?.toMutableList() ?: mutableListOf()
+        upsList.add(
+            json.encodeToJsonElement(
+                HookEntry(matcher = "", hooks = listOf(HookDef(type = "http", url = upsUrl, timeout = 10)))
+            )
+        )
+
+        val updatedHooks = buildJsonObject {
+            existingHooks.forEach { (key, value) ->
+                if (key != "UserPromptSubmit") put(key, value)
+            }
+            put("UserPromptSubmit", Json.encodeToJsonElement(upsList))
+        }
+
+        val updatedRoot = buildJsonObject {
+            root.forEach { (key, value) ->
+                if (key != "hooks") put(key, value)
+            }
+            put("hooks", updatedHooks)
+        }
+
+        file.parentFile.mkdirs()
+        file.writeText(json.encodeToString(JsonElement.serializer(), updatedRoot))
+        logger.i { "Registered capability hook for port $port" }
+    }
+
+    /**
+     * Removes our `UserPromptSubmit` hook entry. Preserves any other entries
+     * under `UserPromptSubmit` that belong to other tools, and the file's
+     * other keys (env, other hook events) are left alone.
+     */
+    fun unregisterCapabilityHook(port: Int) {
+        val file = settingsFile()
+        if (!file.exists()) return
+
+        val root: JsonObject = try {
+            json.parseToJsonElement(file.readText()).jsonObject
+        } catch (e: Exception) {
+            logger.w(e) { "Failed to parse settings.json" }
+            return
+        }
+
+        val existingHooks = root["hooks"]?.jsonObject ?: return
+        val upsUrl = userPromptSubmitUrl(port)
+
+        val entries = existingHooks["UserPromptSubmit"]?.jsonArray ?: return
+        val filtered = entries.filter { entry ->
+            val innerHooks = entry.jsonObject["hooks"]?.jsonArray ?: return@filter true
+            val hasOurHook = innerHooks.any { h ->
+                val hObj = h.jsonObject
+                hObj["type"].toString().trim('"') == "http" &&
+                    hObj["url"].toString().trim('"') == upsUrl
+            }
+            !hasOurHook
+        }
+
+        val updatedHooks = buildJsonObject {
+            existingHooks.forEach { (key, value) ->
+                if (key != "UserPromptSubmit") put(key, value)
+            }
+            if (filtered.isNotEmpty()) {
+                put("UserPromptSubmit", Json.encodeToJsonElement(filtered))
+            }
+        }
+
+        val updatedRoot = buildJsonObject {
+            root.forEach { (key, value) ->
+                if (key != "hooks") put(key, value)
+            }
+            if (updatedHooks.isNotEmpty()) {
+                put("hooks", updatedHooks)
+            }
+        }
+
+        file.writeText(json.encodeToString(JsonElement.serializer(), updatedRoot))
+        logger.i { "Unregistered capability hook for port $port" }
+    }
+
     fun unregister(port: Int) {
         val file = settingsFile()
         if (!file.exists()) return
@@ -187,10 +312,11 @@ object HookRegistrar {
         val filteredPerm = filterHooks("PermissionRequest", hookUrl(port))
         val filteredPtu = filterHooks("PreToolUse", preToolUseUrl(port))
         val filteredPost = filterHooks("PostToolUse", postToolUseUrl(port))
+        val filteredUps = filterHooks("UserPromptSubmit", userPromptSubmitUrl(port))
 
         val updatedHooks = buildJsonObject {
             existingHooks.forEach { (key, value) ->
-                if (key != "PermissionRequest" && key != "PreToolUse" && key != "PostToolUse") put(key, value)
+                if (key != "PermissionRequest" && key != "PreToolUse" && key != "PostToolUse" && key != "UserPromptSubmit") put(key, value)
             }
             if (filteredPerm.isNotEmpty()) {
                 put("PermissionRequest", Json.encodeToJsonElement(filteredPerm))
@@ -200,6 +326,9 @@ object HookRegistrar {
             }
             if (filteredPost.isNotEmpty()) {
                 put("PostToolUse", Json.encodeToJsonElement(filteredPost))
+            }
+            if (filteredUps.isNotEmpty()) {
+                put("UserPromptSubmit", Json.encodeToJsonElement(filteredUps))
             }
         }
 

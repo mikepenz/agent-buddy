@@ -2,10 +2,13 @@ package com.mikepenz.agentapprover.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.mikepenz.agentapprover.capability.CapabilityEngine
+import com.mikepenz.agentapprover.capability.CapabilityModule
 import com.mikepenz.agentapprover.di.AppScope
 import com.mikepenz.agentapprover.hook.CopilotBridge
 import com.mikepenz.agentapprover.hook.HookRegistry
 import com.mikepenz.agentapprover.model.AppSettings
+import com.mikepenz.agentapprover.model.CapabilitySettings
 import com.mikepenz.agentapprover.model.ProtectionSettings
 import com.mikepenz.agentapprover.protection.ProtectionEngine
 import com.mikepenz.agentapprover.protection.ProtectionModule
@@ -53,9 +56,12 @@ class SettingsViewModel(
     private val copilotStateHolder: CopilotStateHolder,
     private val ollamaStateHolder: OllamaStateHolder,
     protectionEngine: ProtectionEngine,
+    capabilityEngine: CapabilityEngine,
     private val hookRegistry: HookRegistry,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
+
+    val capabilityModules: List<CapabilityModule> = capabilityEngine.modules
 
     /**
      * Single-slot dispatcher derived from [ioDispatcher]. All write actions
@@ -130,6 +136,15 @@ class SettingsViewModel(
                     isCopilotRegistered.value = copilot
                 }
         }
+
+        // Reconcile capability hooks on startup so a capability that was
+        // enabled in a previous session re-registers its UserPromptSubmit
+        // entry — otherwise the entry would only be (re)written the next
+        // time the user toggles a capability switch.
+        viewModelScope.launch(writeDispatcher) {
+            val settings = stateManager.state.value.settings
+            reconcileCapabilityHooks(settings.serverPort, settings.capabilitySettings)
+        }
     }
 
     fun updateSettings(settings: AppSettings) {
@@ -142,6 +157,41 @@ class SettingsViewModel(
         viewModelScope.launch(writeDispatcher) {
             val current = stateManager.state.value.settings
             stateManager.updateSettings(current.copy(protectionSettings = protectionSettings))
+        }
+    }
+
+    /**
+     * Updates capability settings and, as a side effect, reconciles the
+     * `UserPromptSubmit` / `userPromptSubmitted` hook registrations — the
+     * hook is installed iff at least one capability is enabled.
+     *
+     * The reconciliation only touches an agent's capability hook if that
+     * agent's main approval hook is already registered, to avoid writing
+     * into a user's config for an agent they haven't opted into.
+     */
+    fun updateCapabilitySettings(capabilitySettings: CapabilitySettings) {
+        viewModelScope.launch(writeDispatcher) {
+            val current = stateManager.state.value.settings
+            stateManager.updateSettings(current.copy(capabilitySettings = capabilitySettings))
+            reconcileCapabilityHooks(current.serverPort, capabilitySettings)
+        }
+    }
+
+    /**
+     * Writes or removes the capability hook entries for both agents based on
+     * whether any capability module is enabled. Unconditional — no gating on
+     * whether the main approval hooks are present, because capability and
+     * approval hooks are independent features and the user may want one
+     * without the other.
+     */
+    private fun reconcileCapabilityHooks(port: Int, capSettings: CapabilitySettings) {
+        val anyEnabled = capSettings.modules.values.any { it.enabled }
+        if (anyEnabled) {
+            hookRegistry.registerCapabilityHook(port)
+            copilotBridge.registerCapabilityHook(port)
+        } else {
+            hookRegistry.unregisterCapabilityHook(port)
+            copilotBridge.unregisterCapabilityHook(port)
         }
     }
 
