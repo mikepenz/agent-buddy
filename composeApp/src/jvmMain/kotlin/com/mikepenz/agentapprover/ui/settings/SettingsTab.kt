@@ -15,7 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mikepenz.agentapprover.capability.CapabilityModule
 import com.mikepenz.agentapprover.model.AppSettings
+import com.mikepenz.agentapprover.model.CapabilitySettings
 import com.mikepenz.agentapprover.model.ProtectionSettings
 import com.mikepenz.agentapprover.protection.ProtectionModule
 import com.mikepenz.agentapprover.risk.CopilotInitState
@@ -41,9 +43,11 @@ fun SettingsTab(
     onShowLicenses: () -> Unit = {},
     protectionModules: List<ProtectionModule> = emptyList(),
     onProtectionSettingsChange: (ProtectionSettings) -> Unit = {},
+    capabilityModules: List<CapabilityModule> = emptyList(),
+    onCapabilitySettingsChange: (CapabilitySettings) -> Unit = {},
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabTitles = listOf("General", "Integrations", "Risk Analysis", "Protections")
+    val tabTitles = listOf("General", "Integrations", "Risk Analysis", "Protections", "Capabilities")
 
     Column(modifier = Modifier.fillMaxSize()) {
         ScrollableTabRow(
@@ -73,6 +77,7 @@ fun SettingsTab(
             )
             2 -> RiskAnalysisSettingsContent(settings, copilotModels, copilotInitState, ollamaModels, ollamaInitState, onSettingsChange)
             3 -> ProtectionsSettingsContent(protectionModules, settings.protectionSettings, onProtectionSettingsChange)
+            4 -> CapabilitiesSettingsContent(capabilityModules, settings.capabilitySettings, onCapabilitySettingsChange)
         }
     }
 }

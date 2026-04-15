@@ -1,5 +1,7 @@
 package com.mikepenz.agentapprover.di
 
+import com.mikepenz.agentapprover.capability.CapabilityEngine
+import com.mikepenz.agentapprover.capability.modules.ResponseCompressionCapability
 import com.mikepenz.agentapprover.hook.CopilotBridge
 import com.mikepenz.agentapprover.hook.DefaultCopilotBridge
 import com.mikepenz.agentapprover.hook.DefaultHookRegistry
@@ -80,6 +82,14 @@ interface AppProviders {
                 SoftwareInstallModule,
             ),
             settingsProvider = { stateManager.state.value.settings.protectionSettings },
+        )
+
+    @Provides
+    @SingleIn(AppScope::class)
+    fun provideCapabilityEngine(stateManager: AppStateManager): CapabilityEngine =
+        CapabilityEngine(
+            modules = listOf(ResponseCompressionCapability),
+            settingsProvider = { stateManager.state.value.settings.capabilitySettings },
         )
 
     @Provides

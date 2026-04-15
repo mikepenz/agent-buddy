@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -46,6 +47,8 @@ object HookRegistrar {
     private fun preToolUseUrl(port: Int): String = "http://localhost:$port/pre-tool-use"
 
     private fun postToolUseUrl(port: Int): String = "http://localhost:$port/post-tool-use"
+
+    private fun userPromptSubmitUrl(port: Int): String = "http://localhost:$port/capability/inject"
 
     private fun hasHook(hooks: JsonObject, event: String, url: String): Boolean {
         val entries = hooks[event]?.jsonArray ?: return false
@@ -157,6 +160,122 @@ object HookRegistrar {
         logger.i { "Registered hooks for port $port" }
     }
 
+    /**
+     * Returns true iff a `UserPromptSubmit` hook entry pointing at our
+     * capability injection endpoint already exists in the user's settings
+     * file. Used by the Capabilities settings UI to show the right state.
+     */
+    fun isCapabilityHookRegistered(port: Int): Boolean {
+        val file = settingsFile()
+        if (!file.exists()) return false
+        return try {
+            val root = json.parseToJsonElement(file.readText()).jsonObject
+            val hooks = root["hooks"]?.jsonObject ?: return false
+            hasHook(hooks, "UserPromptSubmit", userPromptSubmitUrl(port))
+        } catch (e: Exception) {
+            logger.w(e) { "Failed to read settings.json" }
+            false
+        }
+    }
+
+    /**
+     * Adds a `UserPromptSubmit` hook entry pointing at the capability
+     * injection endpoint. Idempotent — safe to call on every toggle. Leaves
+     * all other hook events (PermissionRequest / PreToolUse / PostToolUse)
+     * untouched.
+     */
+    fun registerCapabilityHook(port: Int) {
+        val file = settingsFile()
+
+        val root: JsonObject = if (file.exists()) {
+            try {
+                json.parseToJsonElement(file.readText()).jsonObject
+            } catch (e: Exception) {
+                logger.w(e) { "Failed to parse settings.json, starting fresh" }
+                JsonObject(emptyMap())
+            }
+        } else {
+            JsonObject(emptyMap())
+        }
+
+        val existingHooks = root["hooks"]?.jsonObject ?: JsonObject(emptyMap())
+        val upsUrl = userPromptSubmitUrl(port)
+        if (hasHook(existingHooks, "UserPromptSubmit", upsUrl)) {
+            logger.i { "Capability hook already registered for port $port" }
+            return
+        }
+
+        val upsList = existingHooks["UserPromptSubmit"]?.jsonArray?.toMutableList() ?: mutableListOf()
+        upsList.add(
+            json.encodeToJsonElement(
+                HookEntry(matcher = "", hooks = listOf(HookDef(type = "http", url = upsUrl, timeout = 10)))
+            )
+        )
+
+        val updatedHooks = buildJsonObject {
+            existingHooks.forEach { (key, value) ->
+                if (key != "UserPromptSubmit") put(key, value)
+            }
+            put("UserPromptSubmit", Json.encodeToJsonElement(upsList))
+        }
+
+        val updatedRoot = buildJsonObject {
+            root.forEach { (key, value) ->
+                if (key != "hooks") put(key, value)
+            }
+            put("hooks", updatedHooks)
+        }
+
+        file.parentFile.mkdirs()
+        file.writeText(json.encodeToString(JsonElement.serializer(), updatedRoot))
+        logger.i { "Registered capability hook for port $port" }
+    }
+
+    /**
+     * Removes our capability hook def from any `UserPromptSubmit` entry.
+     * Operates at the inner hook-def level, not the entry level: if a user
+     * has merged our hook alongside another tool's into a single entry, the
+     * other tool's defs are preserved and only the entry is dropped when no
+     * hooks remain. Other hook events (PermissionRequest / PreToolUse / …)
+     * and top-level keys (env, etc.) are left alone.
+     */
+    fun unregisterCapabilityHook(port: Int) {
+        val file = settingsFile()
+        if (!file.exists()) return
+
+        val root: JsonObject = try {
+            json.parseToJsonElement(file.readText()).jsonObject
+        } catch (e: Exception) {
+            logger.w(e) { "Failed to parse settings.json" }
+            return
+        }
+
+        val existingHooks = root["hooks"]?.jsonObject ?: return
+        val upsUrl = userPromptSubmitUrl(port)
+        val filtered = stripMatchingHookDefs(existingHooks["UserPromptSubmit"]?.jsonArray, upsUrl) ?: return
+
+        val updatedHooks = buildJsonObject {
+            existingHooks.forEach { (key, value) ->
+                if (key != "UserPromptSubmit") put(key, value)
+            }
+            if (filtered.isNotEmpty()) {
+                put("UserPromptSubmit", Json.encodeToJsonElement(filtered))
+            }
+        }
+
+        val updatedRoot = buildJsonObject {
+            root.forEach { (key, value) ->
+                if (key != "hooks") put(key, value)
+            }
+            if (updatedHooks.isNotEmpty()) {
+                put("hooks", updatedHooks)
+            }
+        }
+
+        file.writeText(json.encodeToString(JsonElement.serializer(), updatedRoot))
+        logger.i { "Unregistered capability hook for port $port" }
+    }
+
     fun unregister(port: Int) {
         val file = settingsFile()
         if (!file.exists()) return
@@ -170,27 +289,17 @@ object HookRegistrar {
 
         val existingHooks = root["hooks"]?.jsonObject ?: return
 
-        fun filterHooks(event: String, url: String): List<JsonElement> {
-            val entries = existingHooks[event]?.jsonArray ?: return emptyList()
-            return entries.filter { entry ->
-                val obj = entry.jsonObject
-                val innerHooks = obj["hooks"]?.jsonArray ?: return@filter true
-                val hasOurHook = innerHooks.any { h ->
-                    val hObj = h.jsonObject
-                    hObj["type"].toString().trim('"') == "http" &&
-                        hObj["url"].toString().trim('"') == url
-                }
-                !hasOurHook
-            }
-        }
+        fun filterHooks(event: String, url: String): List<JsonElement> =
+            stripMatchingHookDefs(existingHooks[event]?.jsonArray, url) ?: emptyList()
 
         val filteredPerm = filterHooks("PermissionRequest", hookUrl(port))
         val filteredPtu = filterHooks("PreToolUse", preToolUseUrl(port))
         val filteredPost = filterHooks("PostToolUse", postToolUseUrl(port))
+        val filteredUps = filterHooks("UserPromptSubmit", userPromptSubmitUrl(port))
 
         val updatedHooks = buildJsonObject {
             existingHooks.forEach { (key, value) ->
-                if (key != "PermissionRequest" && key != "PreToolUse" && key != "PostToolUse") put(key, value)
+                if (key != "PermissionRequest" && key != "PreToolUse" && key != "PostToolUse" && key != "UserPromptSubmit") put(key, value)
             }
             if (filteredPerm.isNotEmpty()) {
                 put("PermissionRequest", Json.encodeToJsonElement(filteredPerm))
@@ -200,6 +309,9 @@ object HookRegistrar {
             }
             if (filteredPost.isNotEmpty()) {
                 put("PostToolUse", Json.encodeToJsonElement(filteredPost))
+            }
+            if (filteredUps.isNotEmpty()) {
+                put("UserPromptSubmit", Json.encodeToJsonElement(filteredUps))
             }
         }
 
@@ -214,5 +326,35 @@ object HookRegistrar {
 
         file.writeText(json.encodeToString(JsonElement.serializer(), updatedRoot))
         logger.i { "Unregistered hooks for port $port" }
+    }
+
+    /**
+     * For each entry in [entries], drops any inner hook def whose `type` is
+     * `http` and `url` equals [url], preserving unrelated hook defs inside
+     * the same entry. Entries that end up empty after the filter are
+     * dropped entirely. Returns `null` when the caller's event key is
+     * absent from the settings file (so the caller can short-circuit).
+     */
+    private fun stripMatchingHookDefs(entries: JsonArray?, url: String): List<JsonElement>? {
+        if (entries == null) return null
+        return entries.mapNotNull { entry ->
+            val entryObject = entry.jsonObject
+            val innerHooks = entryObject["hooks"]?.jsonArray ?: return@mapNotNull entry
+            val remainingHooks = innerHooks.filterNot { h ->
+                val hObj = h.jsonObject
+                hObj["type"].toString().trim('"') == "http" &&
+                    hObj["url"].toString().trim('"') == url
+            }
+            when {
+                remainingHooks.isEmpty() -> null
+                remainingHooks.size == innerHooks.size -> entry
+                else -> buildJsonObject {
+                    entryObject.forEach { (key, value) ->
+                        if (key != "hooks") put(key, value)
+                    }
+                    put("hooks", Json.encodeToJsonElement(remainingHooks))
+                }
+            }
+        }
     }
 }
