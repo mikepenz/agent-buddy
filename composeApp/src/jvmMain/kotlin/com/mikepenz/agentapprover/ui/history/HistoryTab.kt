@@ -80,14 +80,21 @@ fun HistoryTab(history: List<ApprovalResult>, onReplay: ((ApprovalResult) -> Uni
     var expandedId by remember { mutableStateOf<String?>(null) }
 
     val filterOptions = listOf("all" to "All", "approvals" to "Approvals", "protections" to "Protections")
-    val sourceOptions: List<Pair<Source?, String>> = listOf(
-        null to "All",
-        Source.CLAUDE_CODE to sourceLabel(Source.CLAUDE_CODE),
-        Source.COPILOT to sourceLabel(Source.COPILOT),
-    )
+    val presentSources = remember(history) {
+        history.mapTo(mutableSetOf()) { it.request.source }
+    }
+    val showSourceFilter = presentSources.size > 1
+    val sourceOptions: List<Pair<Source?, String>> = remember(presentSources) {
+        buildList {
+            add(null to "All")
+            if (Source.CLAUDE_CODE in presentSources) add(Source.CLAUDE_CODE to sourceLabel(Source.CLAUDE_CODE))
+            if (Source.COPILOT in presentSources) add(Source.COPILOT to sourceLabel(Source.COPILOT))
+        }
+    }
 
-    val filtered = remember(history, filterText, filter, sourceFilter) {
-        filterHistory(history, filterText, filter, sourceFilter)
+    val effectiveSourceFilter = if (showSourceFilter) sourceFilter else null
+    val filtered = remember(history, filterText, filter, effectiveSourceFilter) {
+        filterHistory(history, filterText, filter, effectiveSourceFilter)
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
@@ -105,16 +112,18 @@ fun HistoryTab(history: List<ApprovalResult>, onReplay: ((ApprovalResult) -> Uni
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            sourceOptions.forEach { (source, label) ->
-                FilterChip(
-                    selected = sourceFilter == source,
-                    onClick = { sourceFilter = source },
-                    label = { Text(label, fontSize = 11.sp) },
-                )
+        if (showSourceFilter) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                sourceOptions.forEach { (source, label) ->
+                    FilterChip(
+                        selected = sourceFilter == source,
+                        onClick = { sourceFilter = source },
+                        label = { Text(label, fontSize = 11.sp) },
+                    )
+                }
             }
         }
 
