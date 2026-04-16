@@ -59,36 +59,53 @@ class ClaudeCliRiskAnalyzer(
             redirectErrorStream(false)
         }.start()
 
-        // Close stdin immediately so claude doesn't wait for input
-        process.outputStream.close()
+        try {
+            // Close stdin immediately so claude doesn't wait for input
+            process.outputStream.close()
 
-        log.d { "Process pid=${process.pid()}" }
+            log.d { "Process pid=${process.pid()}" }
 
-        // Read both streams concurrently via coroutines to prevent deadlock
-        val stdoutDeferred = async { process.inputStream.bufferedReader().readText() }
-        val stderrDeferred = async { process.errorStream.bufferedReader().readText() }
+            // Read both streams concurrently via coroutines to prevent deadlock.
+            // Use `use {}` so readers are closed promptly when streams are closed.
+            val stdoutDeferred = async {
+                process.inputStream.bufferedReader().use { it.readText() }
+            }
+            val stderrDeferred = async {
+                process.errorStream.bufferedReader().use { it.readText() }
+            }
 
-        val finished = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        if (!finished) {
-            log.w { "Process timed out after ${PROCESS_TIMEOUT_SECONDS}s" }
+            val finished = process.waitFor(PROCESS_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            if (!finished) {
+                log.w { "Process timed out after ${PROCESS_TIMEOUT_SECONDS}s" }
+                process.destroyForcibly()
+                // Close streams so the blocking readText() calls unblock
+                process.inputStream.close()
+                process.errorStream.close()
+                stdoutDeferred.cancel()
+                stderrDeferred.cancel()
+                throw RuntimeException("claude process timed out after ${PROCESS_TIMEOUT_SECONDS}s")
+            }
+
+            val stdoutOutput = stdoutDeferred.await()
+            val stderrOutput = stderrDeferred.await()
+
+            val exitCode = process.exitValue()
+            log.d { "Exited=$exitCode" }
+
+            if (exitCode != 0) {
+                log.w { "Failed: ${stderrOutput.take(200)}" }
+                throw RuntimeException("claude exited with code $exitCode: ${stderrOutput.take(200)}")
+            }
+
+            stdoutOutput.trim()
+        } catch (e: Exception) {
+            // Ensure the process is torn down on any failure (timeout,
+            // cancellation, coroutine scope cancel, etc.)
             process.destroyForcibly()
-            stdoutDeferred.cancel()
-            stderrDeferred.cancel()
-            throw RuntimeException("claude process timed out after ${PROCESS_TIMEOUT_SECONDS}s")
+            process.inputStream.close()
+            process.errorStream.close()
+            throw e
         }
-
-        val stdoutOutput = stdoutDeferred.await()
-        val stderrOutput = stderrDeferred.await()
-
-        val exitCode = process.exitValue()
-        log.d { "Exited=$exitCode" }
-
-        if (exitCode != 0) {
-            log.w { "Failed: ${stderrOutput.take(200)}" }
-            throw RuntimeException("claude exited with code $exitCode: ${stderrOutput.take(200)}")
-        }
-
-        stdoutOutput.trim()
     }
 
     private fun parseResult(rawOutput: String): RiskAnalysis {

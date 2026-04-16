@@ -172,6 +172,9 @@ class AppStateManager(
 
     fun updateRiskResult(requestId: String, analysis: RiskAnalysis) {
         synchronized(persistLock) {
+            // Drop late-arriving results for already-resolved requests to
+            // avoid stale entries that resolve() will never clean up.
+            if (_state.value.pendingApprovals.none { it.id == requestId }) return
             _state.update { it.copy(riskResults = it.riskResults + (requestId to analysis)) }
         }
     }
