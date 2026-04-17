@@ -1,11 +1,15 @@
 package com.mikepenz.agentapprover.storage
 
 import co.touchlab.kermit.Logger
+import com.github.javakeyring.BackendNotSupportedException
+import com.github.javakeyring.Keyring
+import com.github.javakeyring.PasswordAccessException
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.nio.file.attribute.FileAttribute
 import java.nio.file.attribute.PosixFilePermissions
+import java.util.Base64
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.SecretKeySpec
@@ -14,13 +18,15 @@ import javax.crypto.spec.SecretKeySpec
  * Manages the long-lived AES-256 key used by [ColumnCipher] to encrypt
  * sensitive history columns at rest.
  *
- * The key is stored in a single binary file at `<dataDir>/db.key`. On POSIX
- * platforms the file is created with `rw-------` (0600). On Windows POSIX
- * permissions are not supported by the JVM file attribute view, so the file
- * inherits the user's default ACL — this is documented as a known limitation
- * (see SECURITY.md). In both cases the protection is defense-in-depth:
- * any process running as the same user can still read the key file, so this
- * should not be treated as a credential vault.
+ * Storage strategy, in order of preference:
+ *   1. Platform keyring — macOS Keychain, Windows Credential Manager, or
+ *      freedesktop Secret Service on Linux. The OS gates access by user
+ *      login session, so this resists offline disk reads in a way a flat
+ *      file cannot.
+ *   2. Fallback file at `<dataDir>/db.key` (POSIX `rw-------`; on Windows
+ *      the file inherits the user's default ACL — documented limitation in
+ *      SECURITY.md). Used when the platform keyring is unavailable (headless
+ *      Linux session, locked keyring, missing Secret Service daemon, etc.).
  */
 object DbKeyManager {
 
@@ -29,15 +35,73 @@ object DbKeyManager {
     private const val KEY_BITS = 256
     private const val KEY_BYTES = KEY_BITS / 8
     private const val ALGORITHM = "AES"
+    private const val KEYRING_SERVICE = "com.mikepenz.agentapprover"
+    private const val KEYRING_ACCOUNT = "db.key"
 
     /**
-     * Returns the AES key for [dataDir], generating and persisting a new
-     * 256-bit random key on first call. Subsequent calls return the same
-     * key bytes loaded from disk.
+     * Returns the AES key, generating and persisting a new 256-bit random
+     * key on first call. Subsequent calls return the same key.
+     *
+     * @param dataDir location of the fallback `db.key` file
+     * @param allowKeyring set to false in tests to force file-backed storage
      */
-    fun loadOrCreate(dataDir: String): SecretKey {
+    fun loadOrCreate(dataDir: String, allowKeyring: Boolean = true): SecretKey {
         val dir = File(dataDir).also { if (!it.exists()) it.mkdirs() }
         val keyFile = File(dir, KEY_FILE_NAME)
+
+        if (allowKeyring) {
+            val fromKeyring = tryKeyring()
+            if (fromKeyring != null) return fromKeyring
+        }
+
+        return loadOrCreateFile(dir, keyFile)
+    }
+
+    /**
+     * Returns the AES key via the platform keyring, or null if the keyring
+     * backend is unavailable / unusable on this host (caller falls back to
+     * the file path).
+     */
+    private fun tryKeyring(): SecretKey? {
+        val keyring = try {
+            Keyring.create()
+        } catch (e: BackendNotSupportedException) {
+            logger.i { "Platform keyring unavailable (${e.message}); using file-based key storage" }
+            return null
+        } catch (e: Throwable) {
+            logger.w { "Unexpected error creating keyring: ${e.message}; using file-based key storage" }
+            return null
+        }
+
+        return keyring.use { kr ->
+            val existing = try {
+                kr.getPassword(KEYRING_SERVICE, KEYRING_ACCOUNT)
+            } catch (_: PasswordAccessException) {
+                null
+            } catch (e: Throwable) {
+                logger.w { "Unexpected error reading keyring: ${e.message}; using file-based key storage" }
+                return@use null
+            }
+
+            if (existing != null) {
+                val bytes = decodeKeyringValue(existing)
+                if (bytes != null) return@use SecretKeySpec(bytes, ALGORITHM)
+                logger.w { "Keyring entry has unexpected format; regenerating" }
+            }
+
+            val key = generateKey()
+            try {
+                kr.setPassword(KEYRING_SERVICE, KEYRING_ACCOUNT, encodeKeyringValue(key.encoded))
+                logger.i { "Generated new database key (stored in platform keyring)" }
+                key
+            } catch (e: Throwable) {
+                logger.w { "Failed to write key to keyring: ${e.message}; using file-based key storage" }
+                null
+            }
+        }
+    }
+
+    private fun loadOrCreateFile(dir: File, keyFile: File): SecretKey {
         if (keyFile.exists()) {
             val bytes = keyFile.readBytes()
             require(bytes.size == KEY_BYTES) {
@@ -46,11 +110,23 @@ object DbKeyManager {
             return SecretKeySpec(bytes, ALGORITHM)
         }
 
-        val generator = KeyGenerator.getInstance(ALGORITHM).apply { init(KEY_BITS) }
-        val key = generator.generateKey()
+        val key = generateKey()
         writeKeyAtomically(dir, keyFile, key.encoded)
-        logger.i { "Generated new database key" }
+        logger.i { "Generated new database key (stored in $KEY_FILE_NAME)" }
         return key
+    }
+
+    private fun generateKey(): SecretKey =
+        KeyGenerator.getInstance(ALGORITHM).apply { init(KEY_BITS) }.generateKey()
+
+    private fun encodeKeyringValue(bytes: ByteArray): String =
+        Base64.getEncoder().encodeToString(bytes)
+
+    private fun decodeKeyringValue(value: String): ByteArray? = try {
+        val decoded = Base64.getDecoder().decode(value)
+        if (decoded.size == KEY_BYTES) decoded else null
+    } catch (_: IllegalArgumentException) {
+        null
     }
 
     /**

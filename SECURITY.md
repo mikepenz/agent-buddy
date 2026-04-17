@@ -32,10 +32,20 @@ Encryption parameters:
 - Backward compatibility: pre-encryption rows lack the `v1:` prefix and are
   returned as-is by the decrypt path; they upgrade in place on the next write
 
-The 256-bit key lives in `<dataDir>/db.key`. On POSIX platforms it is created
-with `rw-------` (0600). On Windows POSIX permissions are unsupported by the
-JVM file attribute view, so the file inherits the user's default ACL — known
-limitation.
+**Key storage.** The 256-bit key is stored in the platform keyring where
+possible, falling back to a file only when the keyring is unavailable:
+
+| Platform | Primary store                                   | Fallback                 |
+|----------|-------------------------------------------------|--------------------------|
+| macOS    | Keychain (`com.mikepenz.agentapprover` / `db.key`) | `<dataDir>/db.key` (0600) |
+| Windows  | Credential Manager (same service/account)        | `<dataDir>\db.key` (ACL)  |
+| Linux    | freedesktop Secret Service (GNOME Keyring / KWallet) | `<dataDir>/db.key` (0600) |
+
+The keyring path resists offline disk reads because the OS gates access by
+user login session. The file fallback kicks in on headless Linux sessions, on
+hosts without a running Secret Service daemon, or when the keyring is locked
+— in those environments, key protection degrades to the POSIX file mode
+(`rw-------`) or, on Windows without a keyring, the user's default ACL.
 
 **Log sanitization**
 
@@ -48,10 +58,16 @@ synchronously from `AppStateManager.updateSettings`, so no restart is required.
 
 **Remaining gaps**
 
-- The key file at `<dataDir>/db.key` is readable by any process running as the
-  same user. This is a defense-in-depth measure to make casual disk access
-  (backup tarballs, recovered drives, mistakenly synced cloud folders) yield
-  opaque ciphertext — it is **not** a credential vault.
+- When the platform keyring is used, key access is gated by the OS login
+  session. Any process running as the same logged-in user can still query the
+  keyring via the same APIs — the protection is against *offline* disk reads
+  (stolen laptops, backup tarballs, mistakenly synced cloud folders), not
+  against co-resident malware.
+- When the file fallback is used (e.g. headless Linux without a running
+  Secret Service daemon), the key at `<dataDir>/db.key` is readable by any
+  process running as the same user and is not protected from offline disk
+  reads either. Document-level encryption still raises the bar for casual
+  disk access but is weaker than the keyring path.
 - `cwd` is intentionally left in plaintext for grouping. Treat the dataDir as
   user-confidential.
 - `verboseLogging`, when enabled, restores the previous behaviour and will

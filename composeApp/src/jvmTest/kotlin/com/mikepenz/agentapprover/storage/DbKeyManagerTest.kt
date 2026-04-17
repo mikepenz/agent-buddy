@@ -24,7 +24,7 @@ class DbKeyManagerTest {
 
     @Test
     fun loadOrCreateGeneratesA256BitKeyOnFirstCall() {
-        val key = DbKeyManager.loadOrCreate(tempDir.absolutePath)
+        val key = DbKeyManager.loadOrCreate(tempDir.absolutePath, allowKeyring = false)
         assertEquals("AES", key.algorithm)
         assertEquals(32, key.encoded.size, "256-bit key should be 32 bytes")
 
@@ -35,15 +35,15 @@ class DbKeyManagerTest {
 
     @Test
     fun loadOrCreateReturnsTheSameBytesOnSubsequentCalls() {
-        val first = DbKeyManager.loadOrCreate(tempDir.absolutePath)
-        val second = DbKeyManager.loadOrCreate(tempDir.absolutePath)
+        val first = DbKeyManager.loadOrCreate(tempDir.absolutePath, allowKeyring = false)
+        val second = DbKeyManager.loadOrCreate(tempDir.absolutePath, allowKeyring = false)
         assertTrue(first.encoded.contentEquals(second.encoded), "key bytes must be stable across calls")
     }
 
     @Test
     fun loadOrCreateCreatesTheDataDirIfMissing() {
         val nested = File(tempDir, "nested/data/dir")
-        DbKeyManager.loadOrCreate(nested.absolutePath)
+        DbKeyManager.loadOrCreate(nested.absolutePath, allowKeyring = false)
         assertTrue(File(nested, "db.key").exists())
     }
 }
