@@ -265,8 +265,21 @@ private fun SlimItemCard(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     SlimTertiaryLink(text = "View details", onClick = onViewDetail)
+                    if (item.toolType == ToolType.DEFAULT) {
+                        Text(
+                            text = "·",
+                            color = AgentBuddyColors.inkSubtle,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                        SlimTertiaryLink(
+                            text = "Always allow",
+                            onClick = { onResolve(item.id, SlimAction.AllowSession) },
+                        )
+                    }
                 }
             }
         }
@@ -671,7 +684,6 @@ private fun SlimDefaultHero(
             onClick = { onResolve(item.id, SlimAction.Allow) },
         )
     }
-
 }
 
 @Composable
