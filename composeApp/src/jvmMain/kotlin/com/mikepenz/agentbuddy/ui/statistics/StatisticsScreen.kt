@@ -1,7 +1,7 @@
 package com.mikepenz.agentbuddy.ui.statistics
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -134,44 +135,56 @@ fun StatisticsScreen(
     onRangeChange: (StatsRange) -> Unit = {},
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize().background(AgentBuddyColors.background)) {
-        val contentWidth = maxOf(maxWidth, 800.dp)
-        val hScroll = rememberScrollState()
-        Box(
-            modifier = Modifier.fillMaxHeight().horizontalScroll(hScroll),
-        ) {
-            Column(modifier = Modifier.width(contentWidth).fillMaxHeight()) {
-                StatsHeader(range = range, onRangeChange = onRangeChange)
-                if (data.isEmpty) {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                text = "No decisions yet",
-                                color = AgentBuddyColors.inkSecondary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = "Stats will appear here once requests start flowing through.",
-                                color = AgentBuddyColors.inkMuted,
-                                fontSize = 12.sp,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
+        val isCompact = maxWidth < 800.dp
+        val stackHeader = maxWidth < 580.dp
+        Column(modifier = Modifier.fillMaxSize()) {
+            StatsHeader(range = range, onRangeChange = onRangeChange, stackPill = stackHeader)
+            if (data.isEmpty) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "No decisions yet",
+                            color = AgentBuddyColors.inkSecondary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "Stats will appear here once requests start flowing through.",
+                            color = AgentBuddyColors.inkMuted,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                        )
                     }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(start = 28.dp, end = 28.dp, top = 22.dp, bottom = 28.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        KpiGrid(kpis = data.kpis)
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 28.dp, end = 28.dp, top = 22.dp, bottom = 28.dp)
+                        .animateContentSize(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    KpiGrid(kpis = data.kpis, columns = if (isCompact) 3 else 6)
+                    if (isCompact) {
+                        DecisionsPerDayCard(
+                            daily = data.daily,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        BreakdownCard(
+                            approvalTotal = data.approvalTotal,
+                            approvals = data.approvalBreakdown,
+                            denialTotal = data.denialTotal,
+                            denials = data.denialBreakdown,
+                            response = data.responseBreakdown,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -189,8 +202,8 @@ fun StatisticsScreen(
                                 modifier = Modifier.weight(1f),
                             )
                         }
-                        MostRequestedToolsCard(tools = data.tools)
                     }
+                    MostRequestedToolsCard(tools = data.tools)
                 }
             }
         }
@@ -201,13 +214,15 @@ fun StatisticsScreen(
 private fun StatsHeader(
     range: StatsRange,
     onRangeChange: (StatsRange) -> Unit,
+    stackPill: Boolean = false,
 ) {
-    Column(modifier = Modifier.fillMaxWidth().padding(start = 28.dp, end = 28.dp, top = 18.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 28.dp, end = 28.dp, top = 18.dp)
+            .animateContentSize(),
+    ) {
+        val titleBlock: @Composable () -> Unit = {
             Column {
                 Text(
                     text = "Stats",
@@ -223,11 +238,27 @@ private fun StatsHeader(
                     fontSize = 12.sp,
                 )
             }
+        }
+        val pill: @Composable () -> Unit = {
             PillSegmented(
                 options = StatsRange.entries.map { it to it.label },
                 selected = range,
                 onSelect = onRangeChange,
             )
+        }
+        if (stackPill) {
+            titleBlock()
+            Spacer(Modifier.height(10.dp))
+            pill()
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                titleBlock()
+                pill()
+            }
         }
         Spacer(Modifier.height(14.dp))
         HorizontalHairline()
@@ -237,13 +268,29 @@ private fun StatsHeader(
 // ── KPI grid ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun KpiGrid(kpis: List<Kpi>) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+private fun KpiGrid(kpis: List<Kpi>, columns: Int = 6) {
+    Column(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        kpis.forEach { kpi ->
-            KpiCard(kpi = kpi, modifier = Modifier.weight(1f))
+        kpis.chunked(columns).forEach { rowKpis ->
+            Row(
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                rowKpis.forEach { kpi ->
+                    KpiCard(
+                        kpi = kpi,
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                    )
+                }
+                // Pad a short trailing row so its items retain the same cell
+                // width as the other rows instead of expanding to fill.
+                val missing = columns - rowKpis.size
+                if (missing > 0) {
+                    Spacer(modifier = Modifier.weight(missing.toFloat()))
+                }
+            }
         }
     }
 }
@@ -866,6 +913,27 @@ private fun highVolumeStats(): StatsScreenData = StatsScreenData(
 @Preview(widthDp = 1088, heightDp = 1200)
 @Composable
 private fun PreviewStatisticsScreen() {
+    PreviewScaffold {
+        StatisticsScreen(data = sampleStats())
+    }
+}
+
+@Preview(widthDp = 720, heightDp = 1600)
+@Composable
+private fun PreviewStatisticsScreenCompact() {
+    // Regression: under 800.dp the screen used to require horizontal scroll.
+    // Now the KPI grid wraps to 2×3 and the chart/breakdown/tools stack
+    // vertically instead.
+    PreviewScaffold {
+        StatisticsScreen(data = sampleStats())
+    }
+}
+
+@Preview(widthDp = 510, heightDp = 1800)
+@Composable
+private fun PreviewStatisticsScreenSlim() {
+    // Just above the 500.dp slim-app cutoff. Header stacks its range pill
+    // below the title and KPI cards in each row are equal-height.
     PreviewScaffold {
         StatisticsScreen(data = sampleStats())
     }
