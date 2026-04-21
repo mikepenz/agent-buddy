@@ -9,7 +9,6 @@ import com.mikepenz.agentbuddy.model.Decision
 import com.mikepenz.agentbuddy.model.ToolType
 import com.mikepenz.agentbuddy.ui.components.DecisionStatus
 import dev.zacsweers.metrox.viewmodel.metroViewModel
-import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.time.Duration
@@ -20,20 +19,24 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Resolves the [HistoryViewModel] from Metro and projects each persisted
- * [ApprovalResult] into the design-spec [HistoryEntry] consumed by
- * [HistoryScreen].
+ * Resolves the [HistoryViewModel] from Metro and forwards its pre-projected,
+ * pre-filtered [HistoryUiState] to [HistoryScreen]. All projection, filtering,
+ * and counting happens in the VM — this composable is a thin pass-through.
  */
 @Composable
 fun HistoryTabHost(onJumpToApprovals: () -> Unit) {
     val viewModel: HistoryViewModel = metroViewModel()
-    val history by viewModel.history.collectAsState()
-    val now = Clock.System.now()
-    val entries = history.map { it.toHistoryEntry(now) }
+    val ui by viewModel.uiState.collectAsState()
     val onReplay: ((String) -> Unit)? = if (viewModel.devMode) {
         { id -> if (viewModel.replayById(id)) onJumpToApprovals() }
     } else null
-    HistoryScreen(items = entries, onReplay = onReplay)
+    HistoryScreen(
+        ui = ui,
+        onScopeChange = viewModel::setScope,
+        onSourceFilterChange = viewModel::setSourceFilter,
+        onQueryChange = viewModel::setQuery,
+        onReplay = onReplay,
+    )
 }
 
 /**
@@ -43,7 +46,7 @@ fun HistoryTabHost(onJumpToApprovals: () -> Unit) {
 fun List<ApprovalResult>.toHistoryEntries(now: Instant): List<HistoryEntry> =
     map { it.toHistoryEntry(now) }
 
-private fun ApprovalResult.toHistoryEntry(now: Instant): HistoryEntry {
+internal fun ApprovalResult.toHistoryEntry(now: Instant): HistoryEntry {
     val req = request
     val viaName = riskAnalysis?.source?.takeIf { it.isNotBlank() }
     val cwd = req.hookInput.cwd.takeIf { it.isNotBlank() }

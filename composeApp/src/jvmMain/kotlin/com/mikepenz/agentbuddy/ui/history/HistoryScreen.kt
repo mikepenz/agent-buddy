@@ -22,8 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
@@ -95,13 +96,13 @@ data class HistoryEntry(
  */
 enum class HistorySourceFilter { All, Claude, Copilot }
 
-private fun HistoryEntry.matchesSource(filter: HistorySourceFilter): Boolean = when (filter) {
+internal fun HistoryEntry.matchesSource(filter: HistorySourceFilter): Boolean = when (filter) {
     HistorySourceFilter.All -> true
     HistorySourceFilter.Claude -> source == Source.CLAUDE_CODE
     HistorySourceFilter.Copilot -> source == Source.COPILOT
 }
 
-private fun HistoryEntry.matchesQuery(query: String): Boolean {
+internal fun HistoryEntry.matchesQuery(query: String): Boolean {
     if (query.isBlank()) return true
     val q = query.lowercase()
     val sourceLabel = when (source) {
@@ -113,7 +114,127 @@ private fun HistoryEntry.matchesQuery(query: String): Boolean {
         sourceLabel.lowercase().contains(q)
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/**
+ * Ready-to-render state for the History screen. All filtering, counting and
+ * projection from persisted `ApprovalResult` to `HistoryEntry` happens in
+ * [HistoryViewModel] — the screen just renders [entries] as-is. This keeps
+ * per-keystroke work off the composition thread and makes the screen's
+ * recomposition cost independent of total history size.
+ */
+data class HistoryUiState(
+    val entries: List<HistoryEntry>,
+    val total: Int,
+    val counts: HistoryCounts,
+    val scope: HistoryScope,
+    val sourceFilter: HistorySourceFilter,
+    val query: String,
+) {
+    companion object {
+        val Empty = HistoryUiState(
+            entries = emptyList(),
+            total = 0,
+            counts = HistoryCounts(0, 0, 0),
+            scope = HistoryScope.All,
+            sourceFilter = HistorySourceFilter.All,
+            query = "",
+        )
+    }
+}
+
+/**
+ * Primary entry point — driven by [HistoryViewModel]. All filter state lives
+ * in the VM so the composable itself never re-derives the list.
+ */
+@Composable
+fun HistoryScreen(
+    ui: HistoryUiState,
+    onScopeChange: (HistoryScope) -> Unit,
+    onSourceFilterChange: (HistorySourceFilter) -> Unit,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    initialExpandedId: String? = ui.entries.firstOrNull()?.id,
+    onReplay: ((id: String) -> Unit)? = null,
+) {
+    var expandedId by remember { mutableStateOf(initialExpandedId) }
+
+    // Min content width: header and table scroll together as one unit.
+    val hScroll = rememberScrollState()
+
+    BoxWithConstraints(modifier = modifier.fillMaxSize().background(AgentBuddyColors.background)) {
+        val contentWidth = maxOf(maxWidth, 868.dp)
+        Box(modifier = Modifier.fillMaxSize().horizontalScroll(hScroll)) {
+            Column(modifier = Modifier.fillMaxHeight().width(contentWidth)) {
+                HistoryHeader(
+                    total = ui.total,
+                    showing = ui.entries.size,
+                    scope = ui.scope,
+                    counts = ui.counts,
+                    onScopeChange = onScopeChange,
+                    sourceFilter = ui.sourceFilter,
+                    onSourceFilterChange = onSourceFilterChange,
+                    query = ui.query,
+                    onQueryChange = onQueryChange,
+                )
+
+                if (ui.entries.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "No matching events.",
+                            color = AgentBuddyColors.inkMuted,
+                            fontSize = 13.sp,
+                        )
+                    }
+                } else {
+                    // Column headers are rendered outside the LazyColumn so they
+                    // stay pinned at the top — same effect as the JSX
+                    // `position: sticky, top: 0`.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(AgentBuddyColors.chrome)
+                            .padding(horizontal = 28.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Spacer(Modifier.width(22.dp))
+                        ColHeader("Tool", Modifier.width(120.dp))
+                        ColHeader("Source", Modifier.width(110.dp))
+                        ColHeader("Target", Modifier.weight(1f))
+                        ColHeader("Outcome", Modifier.width(200.dp))
+                        ColHeader("When", Modifier.width(80.dp), alignEnd = true)
+                    }
+                    HorizontalHairline()
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    ) {
+                        itemsIndexed(
+                            items = ui.entries,
+                            key = { _, entry -> entry.id },
+                        ) { idx, entry ->
+                            HistoryRow(
+                                entry = entry,
+                                expanded = expandedId == entry.id,
+                                onToggle = {
+                                    expandedId = if (expandedId == entry.id) null else entry.id
+                                },
+                                isLast = idx == ui.entries.lastIndex,
+                                onReplay = onReplay,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Preview/test-friendly overload: constructs a self-contained [HistoryUiState]
+ * from a static [items] list and hosts filter state locally. Production code
+ * should use the VM-driven overload above.
+ */
 @Composable
 fun HistoryScreen(
     items: List<HistoryEntry>,
@@ -127,104 +248,47 @@ fun HistoryScreen(
     var scope by remember { mutableStateOf(initialScope) }
     var sourceFilter by remember { mutableStateOf(initialSourceFilter) }
     var query by remember { mutableStateOf(initialQuery) }
-    var expandedId by remember { mutableStateOf(initialExpandedId) }
 
-    val filtered = items.filter { entry ->
-        val scopeMatch = when (scope) {
-            HistoryScope.All -> true
-            HistoryScope.Approvals -> entry.status in approvalStatuses
-            HistoryScope.Protections -> entry.status in protectionStatuses
-        }
-        scopeMatch && entry.matchesSource(sourceFilter) && entry.matchesQuery(query)
-    }
-
-    // Min content width: header and table scroll together as one unit.
-    val hScroll = rememberScrollState()
-
-    BoxWithConstraints(modifier = modifier.fillMaxSize().background(AgentBuddyColors.background)) {
-        val contentWidth = maxOf(maxWidth, 868.dp)
-        Box(
-            modifier = Modifier.fillMaxSize().horizontalScroll(hScroll),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxHeight().width(contentWidth),
-            ) {
-        HistoryHeader(
-            total = items.size,
-            showing = filtered.size,
-            scope = scope,
-            counts = HistoryCounts(
-                all = items.size,
-                approvals = items.count { it.status in approvalStatuses },
-                protections = items.count { it.status in protectionStatuses },
-            ),
-            onScopeChange = { scope = it },
-            sourceFilter = sourceFilter,
-            onSourceFilterChange = { sourceFilter = it },
-            query = query,
-            onQueryChange = { query = it },
+    val counts = remember(items) {
+        HistoryCounts(
+            all = items.size,
+            approvals = items.count { it.status in approvalStatuses },
+            protections = items.count { it.status in protectionStatuses },
         )
-
-        if (filtered.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    text = "No matching events.",
-                    color = AgentBuddyColors.inkMuted,
-                    fontSize = 13.sp,
-                )
+    }
+    val filtered = remember(items, scope, sourceFilter, query) {
+        items.filter { entry ->
+            val scopeMatch = when (scope) {
+                HistoryScope.All -> true
+                HistoryScope.Approvals -> entry.status in approvalStatuses
+                HistoryScope.Protections -> entry.status in protectionStatuses
             }
-        } else {
-            val vScroll = rememberScrollState()
-            Column(modifier = Modifier.fillMaxWidth()) {
-                    // Header is rendered outside the vertical scroll so it
-                    // stays pinned at the top — same effect as the JSX
-                    // `position: sticky, top: 0`.
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(AgentBuddyColors.chrome)
-                                .padding(horizontal = 28.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Spacer(Modifier.width(22.dp))
-                            ColHeader("Tool", Modifier.width(120.dp))
-                            ColHeader("Source", Modifier.width(110.dp))
-                            ColHeader("Target", Modifier.weight(1f))
-                            ColHeader("Outcome", Modifier.width(200.dp))
-                            ColHeader("When", Modifier.width(80.dp), alignEnd = true)
-                        }
-                        HorizontalHairline()
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(vScroll),
-                    ) {
-                        filtered.forEachIndexed { idx, entry ->
-                            HistoryRow(
-                                entry = entry,
-                                expanded = expandedId == entry.id,
-                                onToggle = {
-                                    expandedId = if (expandedId == entry.id) null else entry.id
-                                },
-                                isLast = idx == filtered.lastIndex,
-                                onReplay = onReplay,
-                            )
-                        }
-                    }
-                    }
-            }
+            scopeMatch && entry.matchesSource(sourceFilter) && entry.matchesQuery(query)
         }
     }
-    }
+    val ui = HistoryUiState(
+        entries = filtered,
+        total = items.size,
+        counts = counts,
+        scope = scope,
+        sourceFilter = sourceFilter,
+        query = query,
+    )
+    HistoryScreen(
+        ui = ui,
+        onScopeChange = { scope = it },
+        onSourceFilterChange = { sourceFilter = it },
+        onQueryChange = { query = it },
+        modifier = modifier,
+        initialExpandedId = initialExpandedId,
+        onReplay = onReplay,
+    )
 }
 
 
 enum class HistoryScope { All, Approvals, Protections }
 
-private val approvalStatuses = setOf(
+internal val approvalStatuses = setOf(
     DecisionStatus.APPROVED,
     DecisionStatus.AUTO_APPROVED,
     DecisionStatus.DENIED,
@@ -233,12 +297,12 @@ private val approvalStatuses = setOf(
     DecisionStatus.TIMEOUT,
 )
 
-private val protectionStatuses = setOf(
+internal val protectionStatuses = setOf(
     DecisionStatus.PROTECTION_BLOCKED,
     DecisionStatus.PROTECTION_LOGGED,
 )
 
-private data class HistoryCounts(val all: Int, val approvals: Int, val protections: Int)
+data class HistoryCounts(val all: Int, val approvals: Int, val protections: Int)
 
 @Composable
 private fun HistoryHeader(
