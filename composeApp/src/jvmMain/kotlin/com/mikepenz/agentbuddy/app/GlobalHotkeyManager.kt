@@ -25,16 +25,11 @@ import kotlinx.coroutines.launch
  * `pendingApprovals` list (which is prepended on insert, so the oldest is at
  * the tail). If no requests are pending the keystroke is a no-op.
  *
- * Lifecycle:
- *  - [start] is idempotent. It calls [GlobalHotKeyManager.initialize] on the
- *    first invocation, then begins observing settings.
- *  - [shutdown] cancels the observer, unregisters every active hotkey and
- *    shuts down the underlying Nucleus manager. Idempotent.
- *
- * The Nucleus library decides per-platform whether the OS exposes a
- * registration API (Windows / macOS / Linux). When unavailable, [start] just
- * leaves the listeners unregistered — the in-app behaviour is otherwise
- * unaffected.
+ * **Threading**: every Nucleus call (`initialize`, `register`, `unregister`,
+ * `shutdown`) is dispatched onto the AWT EDT. macOS' Carbon
+ * `RegisterEventHotKey` and Linux' X11 grab path both expect to be invoked
+ * from the main UI thread. Without this wrapping the registration silently
+ * succeeds (returning a handle) on macOS but the listener never fires.
  */
 @SingleIn(AppScope::class)
 @Inject
@@ -55,7 +50,11 @@ class GlobalHotkeyManager(
     fun start() {
         if (collectorJob != null) return
         if (!initialized) {
-            initialized = GlobalHotKeyManager.initialize()
+            initialized = onEdt<Boolean> { GlobalHotKeyManager.initialize() }
+            log.i {
+                "Nucleus initialize: result=$initialized, available=${GlobalHotKeyManager.isAvailable}, " +
+                    "lastError=${GlobalHotKeyManager.lastError}"
+            }
             if (!initialized) {
                 log.w {
                     "Global hotkey manager unavailable on this platform: " +
@@ -78,17 +77,17 @@ class GlobalHotkeyManager(
         collectorJob?.cancel()
         collectorJob = null
         if (approveHandle != 0L) {
-            GlobalHotKeyManager.unregister(approveHandle)
+            onEdt { GlobalHotKeyManager.unregister(approveHandle) }
             approveHandle = 0L
             approveBound = null
         }
         if (denyHandle != 0L) {
-            GlobalHotKeyManager.unregister(denyHandle)
+            onEdt { GlobalHotKeyManager.unregister(denyHandle) }
             denyHandle = 0L
             denyBound = null
         }
         if (initialized) {
-            runCatching { GlobalHotKeyManager.shutdown() }
+            runCatching { onEdtUnit { GlobalHotKeyManager.shutdown() } }
             initialized = false
         }
     }
@@ -101,27 +100,41 @@ class GlobalHotkeyManager(
         if (boundRef == target) return  // already up to date
         // Tear down the old registration if any.
         if (handleRef != 0L) {
-            GlobalHotKeyManager.unregister(handleRef)
+            onEdtUnit { GlobalHotKeyManager.unregister(handleRef) }
             setHandle(role, 0L, null)
         }
-        if (target == null || !initialized) return
+        if (target == null) return
+        if (!initialized) {
+            log.w { "Cannot register $role hotkey ($target) — Nucleus not initialized" }
+            return
+        }
         val nucleusModifiers = target.modifiers.combinedNativeFlag()
         val handle = runCatching {
-            GlobalHotKeyManager.register(
-                nucleusModifiers,
-                target.keyCode,
-                HotKeyListener { _, _ -> onHotkeyFired(role) },
-            )
+            onEdt<Long> {
+                GlobalHotKeyManager.register(
+                    nucleusModifiers,
+                    target.keyCode,
+                    HotKeyListener { mods, key ->
+                        log.d { "$role hotkey listener fired (mods=$mods, key=$key)" }
+                        onHotkeyFired(role)
+                    },
+                )
+            }
         }.getOrElse {
-            log.e(it) { "Failed to register $role hotkey: $target" }
+            log.e(it) { "Failed to register $role hotkey: $target (mods=$nucleusModifiers, key=${target.keyCode})" }
             return
         }
         if (handle == 0L) {
-            log.w { "Nucleus refused to register $role hotkey ($target): ${GlobalHotKeyManager.lastError}" }
+            log.w {
+                "Nucleus refused to register $role hotkey $target " +
+                    "(mods=$nucleusModifiers, key=${target.keyCode}): ${GlobalHotKeyManager.lastError}"
+            }
             return
         }
         setHandle(role, handle, target)
-        log.i { "Registered $role hotkey: $target (handle=$handle)" }
+        log.i {
+            "Registered $role hotkey: $target (mods=$nucleusModifiers, key=${target.keyCode}, handle=$handle)"
+        }
     }
 
     private fun setHandle(role: HotkeyRole, handle: Long, bound: GlobalHotkey?) {
@@ -176,4 +189,32 @@ private fun HotkeyModifier.nativeFlag(): Int = when (this) {
     HotkeyModifier.CONTROL -> 2
     HotkeyModifier.SHIFT -> 4
     HotkeyModifier.META -> 8
+}
+
+/**
+ * Run [block] on the AWT EDT and return its result. macOS' Carbon hotkey API
+ * (and the X11 keyboard-grab path on Linux) require registration to happen
+ * on the main / UI thread; calling from a coroutine IO dispatcher silently
+ * succeeds but the listener never fires. The Nucleus library does not route
+ * onto the EDT itself, so we do it here.
+ */
+private fun <T> onEdt(block: () -> T): T {
+    if (java.awt.EventQueue.isDispatchThread()) return block()
+    val ref = arrayOfNulls<Any?>(1)
+    val err = arrayOfNulls<Throwable>(1)
+    java.awt.EventQueue.invokeAndWait {
+        try {
+            ref[0] = block()
+        } catch (t: Throwable) {
+            err[0] = t
+        }
+    }
+    err[0]?.let { throw it }
+    @Suppress("UNCHECKED_CAST")
+    return ref[0] as T
+}
+
+private fun onEdtUnit(block: () -> Unit) {
+    if (java.awt.EventQueue.isDispatchThread()) block()
+    else java.awt.EventQueue.invokeAndWait(block)
 }
