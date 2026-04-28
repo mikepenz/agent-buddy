@@ -12,11 +12,13 @@ import com.mikepenz.agentbuddy.hook.RegistrationEvents
 import com.mikepenz.agentbuddy.model.AppSettings
 import com.mikepenz.agentbuddy.model.CapabilitySettings
 import com.mikepenz.agentbuddy.model.ProtectionSettings
+import com.mikepenz.agentbuddy.app.RiskAnalyzerLifecycle
 import com.mikepenz.agentbuddy.protection.ProtectionEngine
 import com.mikepenz.agentbuddy.protection.ProtectionModule
 import com.mikepenz.agentbuddy.risk.CopilotInitState
 import com.mikepenz.agentbuddy.risk.CopilotStateHolder
 import com.mikepenz.agentbuddy.risk.OllamaInitState
+import com.mikepenz.agentbuddy.risk.OllamaMetrics
 import com.mikepenz.agentbuddy.risk.OllamaStateHolder
 import com.mikepenz.agentbuddy.state.AppStateManager
 import dev.zacsweers.metro.ContributesIntoMap
@@ -58,6 +60,7 @@ class SettingsViewModel(
     private val copilotBridge: CopilotBridge,
     private val copilotStateHolder: CopilotStateHolder,
     private val ollamaStateHolder: OllamaStateHolder,
+    private val riskAnalyzerLifecycle: RiskAnalyzerLifecycle,
     protectionEngine: ProtectionEngine,
     capabilityEngine: CapabilityEngine,
     private val hookRegistry: HookRegistry,
@@ -87,9 +90,16 @@ class SettingsViewModel(
     private val copilotState: kotlinx.coroutines.flow.Flow<Pair<List<Pair<String, String>>, CopilotInitState>> =
         combine(copilotStateHolder.models, copilotStateHolder.initState) { models, state -> models to state }
 
-    /** Pre-combined Ollama lifecycle state, same reason. */
-    private val ollamaState: kotlinx.coroutines.flow.Flow<Pair<List<String>, OllamaInitState>> =
-        combine(ollamaStateHolder.models, ollamaStateHolder.initState) { models, state -> models to state }
+    /** Pre-combined Ollama lifecycle state, same reason. Bundles models, init state, error, metrics, version. */
+    private val ollamaState: kotlinx.coroutines.flow.Flow<OllamaSnapshot> = combine(
+        ollamaStateHolder.models,
+        ollamaStateHolder.initState,
+        ollamaStateHolder.lastError,
+        ollamaStateHolder.lastMetrics,
+        ollamaStateHolder.version,
+    ) { models, state, error, metrics, version ->
+        OllamaSnapshot(models, state, error, metrics, version)
+    }
 
     val uiState: StateFlow<SettingsUiState> = combine(
         stateManager.state,
@@ -105,8 +115,11 @@ class SettingsViewModel(
             isCopilotRegistered = copilotRegistered,
             copilotModels = copilot.first,
             copilotInitState = copilot.second,
-            ollamaModels = ollama.first,
-            ollamaInitState = ollama.second,
+            ollamaModels = ollama.models,
+            ollamaInitState = ollama.initState,
+            ollamaLastError = ollama.lastError,
+            ollamaLastMetrics = ollama.lastMetrics,
+            ollamaVersion = ollama.version,
         )
     }.stateIn(
         viewModelScope,
@@ -120,6 +133,9 @@ class SettingsViewModel(
             copilotInitState = copilotStateHolder.initState.value,
             ollamaModels = ollamaStateHolder.models.value,
             ollamaInitState = ollamaStateHolder.initState.value,
+            ollamaLastError = ollamaStateHolder.lastError.value,
+            ollamaLastMetrics = ollamaStateHolder.lastMetrics.value,
+            ollamaVersion = ollamaStateHolder.version.value,
         ),
     )
 
@@ -293,7 +309,22 @@ class SettingsViewModel(
             stateManager.clearHistory()
         }
     }
+
+    /** Re-probes `/api/tags` and refreshes the model dropdown. */
+    fun refreshOllamaModels() {
+        viewModelScope.launch(ioDispatcher) {
+            riskAnalyzerLifecycle.refreshOllamaModels()
+        }
+    }
 }
+
+private data class OllamaSnapshot(
+    val models: List<String>,
+    val initState: OllamaInitState,
+    val lastError: String?,
+    val lastMetrics: OllamaMetrics?,
+    val version: String?,
+)
 
 /**
  * Snapshot of all settings-tab inputs. Computed by [SettingsViewModel] from
@@ -308,4 +339,7 @@ data class SettingsUiState(
     val copilotInitState: CopilotInitState,
     val ollamaModels: List<String> = emptyList(),
     val ollamaInitState: OllamaInitState = OllamaInitState.IDLE,
+    val ollamaLastError: String? = null,
+    val ollamaLastMetrics: OllamaMetrics? = null,
+    val ollamaVersion: String? = null,
 )

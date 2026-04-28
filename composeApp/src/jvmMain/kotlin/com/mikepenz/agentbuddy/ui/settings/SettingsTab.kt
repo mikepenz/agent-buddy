@@ -48,6 +48,7 @@ import com.mikepenz.agentbuddy.model.ProtectionSettings
 import com.mikepenz.agentbuddy.protection.ProtectionModule
 import com.mikepenz.agentbuddy.risk.CopilotInitState
 import com.mikepenz.agentbuddy.risk.OllamaInitState
+import com.mikepenz.agentbuddy.risk.OllamaMetrics
 import com.mikepenz.agentbuddy.ui.components.LocalPreviewHoverOverride
 import com.mikepenz.agentbuddy.ui.components.SectionLabel
 import com.mikepenz.agentbuddy.ui.icons.LucideBrain
@@ -77,6 +78,10 @@ fun SettingsTab(
     copilotInitState: CopilotInitState = CopilotInitState.IDLE,
     ollamaModels: List<String> = emptyList(),
     ollamaInitState: OllamaInitState = OllamaInitState.IDLE,
+    ollamaLastError: String? = null,
+    ollamaLastMetrics: OllamaMetrics? = null,
+    ollamaVersion: String? = null,
+    onRefreshOllamaModels: () -> Unit = {},
     onSettingsChange: (AppSettings) -> Unit,
     onRegisterHook: () -> Unit,
     onUnregisterHook: () -> Unit,
@@ -150,6 +155,10 @@ fun SettingsTab(
                     copilotInitState = copilotInitState,
                     ollamaModels = ollamaModels,
                     ollamaInitState = ollamaInitState,
+                    ollamaLastError = ollamaLastError,
+                    ollamaLastMetrics = ollamaLastMetrics,
+                    ollamaVersion = ollamaVersion,
+                    onRefreshOllamaModels = onRefreshOllamaModels,
                     onSettingsChange = onSettingsChange,
                 )
                 SettingsSubTab.Protections -> ProtectionsSettingsContent(

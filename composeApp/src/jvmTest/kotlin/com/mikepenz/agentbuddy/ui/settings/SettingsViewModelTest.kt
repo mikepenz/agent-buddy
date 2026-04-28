@@ -117,11 +117,22 @@ class SettingsViewModelTest {
         val state = AppStateManager()
         val engine = ProtectionEngine(modules = emptyList(), settingsProvider = { ProtectionSettings() })
         val capEngine = CapabilityEngine(modules = listOf(ResponseCompressionCapability, SocraticThinkingCapability), settingsProvider = { state.state.value.settings.capabilitySettings })
+        val claudeAnalyzer = com.mikepenz.agentbuddy.risk.ClaudeCliRiskAnalyzer()
+        val activeHolder = com.mikepenz.agentbuddy.risk.ActiveRiskAnalyzerHolder()
+        val env = com.mikepenz.agentbuddy.di.AppEnvironment(
+            dataDir = "/tmp/test",
+            devMode = false,
+            appScope = kotlinx.coroutines.CoroutineScope(mainDispatcher + kotlinx.coroutines.SupervisorJob()),
+        )
+        val lifecycle = com.mikepenz.agentbuddy.app.RiskAnalyzerLifecycle(
+            state, claudeAnalyzer, activeHolder, copilotState, ollamaState, env,
+        )
         val vm = SettingsViewModel(
             stateManager = state,
             copilotBridge = bridge,
             copilotStateHolder = copilotState,
             ollamaStateHolder = ollamaState,
+            riskAnalyzerLifecycle = lifecycle,
             protectionEngine = engine,
             capabilityEngine = capEngine,
             hookRegistry = registry,
