@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.tooling.preview.Preview
+import com.mikepenz.agentbuddy.ui.theme.PreviewScaffold
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,17 +97,22 @@ private fun IntegrationRow(item: IntegrationItemData, first: Boolean) {
         if (!first) {
             HorizontalHairline()
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            ColoredIconTile(
-                icon = LucidePlug,
-                tint = item.color,
-                contentDescription = null,
-            )
-            Column(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            // Header row: icon + title/status pill + action button. The action
+            // lives here (not next to the description) so the title row owns
+            // the trailing space and the description below can use the full
+            // card width.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                ColoredIconTile(
+                    icon = LucidePlug,
+                    tint = item.color,
+                    contentDescription = null,
+                )
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -125,25 +132,26 @@ private fun IntegrationRow(item: IntegrationItemData, first: Boolean) {
                         text = if (item.registered) "Registered" else DecisionStatus.TIMEOUT.label,
                     )
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = item.desc,
-                    color = AgentBuddyColors.inkTertiary,
-                    fontSize = 11.5.sp,
-                    lineHeight = 17.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 4,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                )
-                if (item.extra != null && item.registered) {
-                    Spacer(Modifier.height(12.dp))
-                    item.extra.invoke()
+                if (item.registered) {
+                    OutlineButton(text = "Unregister", onClick = item.onUnregister)
+                } else {
+                    PrimaryButton(text = "Register", onClick = item.onRegister)
                 }
             }
-            if (item.registered) {
-                OutlineButton(text = "Unregister", onClick = item.onUnregister)
-            } else {
-                PrimaryButton(text = "Register", onClick = item.onRegister)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                modifier = Modifier.fillMaxWidth(),
+                text = item.desc,
+                color = AgentBuddyColors.inkTertiary,
+                fontSize = 11.5.sp,
+                lineHeight = 17.sp,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 4,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+            if (item.extra != null && item.registered) {
+                Spacer(Modifier.height(12.dp))
+                item.extra.invoke()
             }
         }
     }
@@ -178,3 +186,59 @@ private fun CopilotFailClosedCard(failClosed: Boolean, onChange: (Boolean) -> Un
     }
 }
 
+@Preview(widthDp = 380, heightDp = 700)
+@Composable
+private fun PreviewIntegrationsSlim() {
+    PreviewScaffold {
+        androidx.compose.foundation.layout.Box(Modifier.padding(16.dp)) {
+            IntegrationsSettingsContent(
+                settings = AppSettings(),
+                isHookRegistered = true,
+                isCopilotRegistered = true,
+                onSettingsChange = {},
+                onRegisterHook = {},
+                onUnregisterHook = {},
+                onRegisterCopilot = {},
+                onUnregisterCopilot = {},
+            )
+        }
+    }
+}
+
+@Preview(widthDp = 720, heightDp = 700)
+@Composable
+private fun PreviewIntegrationsWide() {
+    PreviewScaffold {
+        androidx.compose.foundation.layout.Box(Modifier.padding(24.dp)) {
+            IntegrationsSettingsContent(
+                settings = AppSettings(),
+                isHookRegistered = true,
+                isCopilotRegistered = true,
+                onSettingsChange = {},
+                onRegisterHook = {},
+                onUnregisterHook = {},
+                onRegisterCopilot = {},
+                onUnregisterCopilot = {},
+            )
+        }
+    }
+}
+
+@Preview(widthDp = 380, heightDp = 600)
+@Composable
+private fun PreviewIntegrationsUnregistered() {
+    PreviewScaffold {
+        androidx.compose.foundation.layout.Box(Modifier.padding(16.dp)) {
+            IntegrationsSettingsContent(
+                settings = AppSettings(),
+                isHookRegistered = false,
+                isCopilotRegistered = false,
+                onSettingsChange = {},
+                onRegisterHook = {},
+                onUnregisterHook = {},
+                onRegisterCopilot = {},
+                onUnregisterCopilot = {},
+            )
+        }
+    }
+}
