@@ -52,7 +52,13 @@ import com.mikepenz.agentbuddy.ui.theme.DangerRed
 import com.mikepenz.agentbuddy.ui.theme.AgentBuddyColors
 import com.mikepenz.agentbuddy.ui.theme.InfoBlue
 import com.mikepenz.agentbuddy.ui.theme.InkMuted
+import com.mikepenz.agentbuddy.ui.theme.PreviewScaffold
 import com.mikepenz.agentbuddy.ui.theme.WarnYellow
+import com.mikepenz.agentbuddy.protection.modules.DestructiveCommandsModule
+import com.mikepenz.agentbuddy.protection.modules.SensitiveFilesModule
+import com.mikepenz.agentbuddy.protection.modules.SupplyChainRceModule
+import com.mikepenz.agentbuddy.protection.modules.ToolBypassModule
+import androidx.compose.ui.tooling.preview.Preview
 
 private data class ModeSpec(val value: ProtectionMode, val label: String, val color: Color)
 
@@ -158,45 +164,51 @@ private fun ProtectionRow(
         if (!first) {
             HorizontalHairline()
         }
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { expanded = !expanded }
                 .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(30.dp)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(activeSpec.color.copy(alpha = 0.14f)),
-                contentAlignment = Alignment.Center,
+            // Header: icon + module name + mode picker. The picker sits in the
+            // title row so the description below can use the full card width
+            // and avoid wrapping awkwardly in narrow layouts.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                Icon(
-                    imageVector = LucideShield,
-                    contentDescription = null,
-                    tint = activeSpec.color,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(activeSpec.color.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = LucideShield,
+                        contentDescription = null,
+                        tint = activeSpec.color,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
                 Text(
+                    modifier = Modifier.weight(1f),
                     text = module.name,
                     color = AgentBuddyColors.inkPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace,
                 )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = module.description,
-                    color = AgentBuddyColors.inkTertiary,
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
-                )
+                ModePicker(specs = specs, active = activeSpec, onSelect = onModeChange)
             }
-            ModePicker(specs = specs, active = activeSpec, onSelect = onModeChange)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                modifier = Modifier.fillMaxWidth(),
+                text = module.description,
+                color = AgentBuddyColors.inkTertiary,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
         }
         AnimatedVisibility(visible = expanded && module.rules.isNotEmpty()) {
             Column(
@@ -326,6 +338,44 @@ private fun ModePicker(
                     }
                 }
             }
+        }
+    }
+}
+
+@Preview(widthDp = 380, heightDp = 900)
+@Composable
+private fun PreviewGuardrailsSlim() {
+    PreviewScaffold {
+        Box(Modifier.padding(16.dp)) {
+            ProtectionsSettingsContent(
+                modules = listOf(
+                    DestructiveCommandsModule,
+                    SensitiveFilesModule,
+                    SupplyChainRceModule,
+                    ToolBypassModule,
+                ),
+                settings = ProtectionSettings(),
+                onSettingsChange = {},
+            )
+        }
+    }
+}
+
+@Preview(widthDp = 720, heightDp = 900)
+@Composable
+private fun PreviewGuardrailsWide() {
+    PreviewScaffold {
+        Box(Modifier.padding(24.dp)) {
+            ProtectionsSettingsContent(
+                modules = listOf(
+                    DestructiveCommandsModule,
+                    SensitiveFilesModule,
+                    SupplyChainRceModule,
+                    ToolBypassModule,
+                ),
+                settings = ProtectionSettings(),
+                onSettingsChange = {},
+            )
         }
     }
 }
