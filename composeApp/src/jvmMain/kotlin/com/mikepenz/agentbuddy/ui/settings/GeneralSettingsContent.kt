@@ -120,6 +120,32 @@ fun GeneralSettingsContent(
         )
     }
 
+    SettingSection(
+        title = "Global hotkeys",
+        desc = "Resolve the oldest pending request from anywhere on your desktop. " +
+            "Click a row to record a key combination, click again or press the X to clear.",
+    ) {
+        SettingItem(
+            label = "Approve oldest",
+            first = true,
+            right = {
+                HotkeyCaptureField(
+                    hotkey = settings.approveOldestHotkey,
+                    onChange = { onSettingsChange(settings.copy(approveOldestHotkey = it)) },
+                )
+            },
+        )
+        SettingItem(
+            label = "Deny oldest",
+            right = {
+                HotkeyCaptureField(
+                    hotkey = settings.denyOldestHotkey,
+                    onChange = { onSettingsChange(settings.copy(denyOldestHotkey = it)) },
+                )
+            },
+        )
+    }
+
     if (isMacOs) {
         SettingSection(
             title = "Notifications",
