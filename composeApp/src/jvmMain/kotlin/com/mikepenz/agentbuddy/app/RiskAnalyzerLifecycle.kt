@@ -74,7 +74,11 @@ class RiskAnalyzerLifecycle(
                         old.riskAnalysisCustomPrompt == new.riskAnalysisCustomPrompt &&
                         old.riskAnalysisCopilotCliPath == new.riskAnalysisCopilotCliPath &&
                         old.riskAnalysisOllamaUrl == new.riskAnalysisOllamaUrl &&
-                        old.riskAnalysisOllamaModel == new.riskAnalysisOllamaModel
+                        old.riskAnalysisOllamaModel == new.riskAnalysisOllamaModel &&
+                        old.riskAnalysisOllamaThinking == new.riskAnalysisOllamaThinking &&
+                        old.riskAnalysisOllamaKeepAlive == new.riskAnalysisOllamaKeepAlive &&
+                        old.riskAnalysisOllamaTimeoutSeconds == new.riskAnalysisOllamaTimeoutSeconds &&
+                        old.riskAnalysisOllamaNumCtx == new.riskAnalysisOllamaNumCtx
                 }
                 .collect { settings -> applySettings(settings) }
         }
@@ -113,30 +117,70 @@ class RiskAnalyzerLifecycle(
         }
         if (analyzer == null) {
             ollamaStateHolder.setInitState(OllamaInitState.LOADING)
+            ollamaStateHolder.setLastError(null)
             analyzer = OllamaRiskAnalyzer(
                 baseUrl = settings.riskAnalysisOllamaUrl,
                 model = settings.riskAnalysisOllamaModel,
                 customSystemPrompt = settings.riskAnalysisCustomPrompt,
             )
+            applyOllamaTuning(analyzer, settings, effectivePrompt)
+            wireOllamaListeners(analyzer)
             try {
                 val models = analyzer.start()
                 ollamaAnalyzer = analyzer
                 ollamaStateHolder.setModels(models)
+                ollamaStateHolder.setVersion(analyzer.version)
+                ollamaStateHolder.setLastError(null)
                 ollamaStateHolder.setInitState(OllamaInitState.READY)
             } catch (e: Exception) {
                 log.e(e) { "Failed to start Ollama analyzer" }
+                ollamaStateHolder.setLastError(analyzer.lastError ?: e.message)
                 ollamaStateHolder.setInitState(OllamaInitState.ERROR)
                 // Keep the analyzer around so the user can retry once the daemon is up.
                 ollamaAnalyzer = analyzer
                 activeAnalyzerHolder.set(analyzer)
-                analyzer.model = settings.riskAnalysisOllamaModel
-                analyzer.systemPrompt = effectivePrompt
                 return
             }
+        } else {
+            applyOllamaTuning(analyzer, settings, effectivePrompt)
         }
+        activeAnalyzerHolder.set(analyzer)
+    }
+
+    private fun applyOllamaTuning(analyzer: OllamaRiskAnalyzer, settings: AppSettings, effectivePrompt: String) {
         analyzer.model = settings.riskAnalysisOllamaModel
         analyzer.systemPrompt = effectivePrompt
-        activeAnalyzerHolder.set(analyzer)
+        analyzer.thinking = settings.riskAnalysisOllamaThinking
+        analyzer.keepAlive = settings.riskAnalysisOllamaKeepAlive
+        analyzer.timeoutMs = settings.riskAnalysisOllamaTimeoutSeconds.coerceAtLeast(5).toLong() * 1_000L
+        analyzer.numCtx = settings.riskAnalysisOllamaNumCtx
+    }
+
+    private fun wireOllamaListeners(analyzer: OllamaRiskAnalyzer) {
+        analyzer.onMetrics = { ollamaStateHolder.setLastMetrics(it) }
+        analyzer.onError = { ollamaStateHolder.setLastError(it) }
+    }
+
+    /**
+     * User-triggered refresh of `/api/tags`. Returns true on success, false on
+     * failure. The state holder is updated with the new model list (or error).
+     */
+    suspend fun refreshOllamaModels(): Boolean {
+        val analyzer = ollamaAnalyzer ?: return false
+        ollamaStateHolder.setInitState(OllamaInitState.LOADING)
+        return analyzer.listModels().fold(
+            onSuccess = { models ->
+                ollamaStateHolder.setModels(models)
+                ollamaStateHolder.setLastError(null)
+                ollamaStateHolder.setInitState(OllamaInitState.READY)
+                true
+            },
+            onFailure = {
+                ollamaStateHolder.setLastError(analyzer.lastError ?: it.message)
+                ollamaStateHolder.setInitState(OllamaInitState.ERROR)
+                false
+            },
+        )
     }
 
     private suspend fun activateCopilot(settings: AppSettings, effectivePrompt: String) {

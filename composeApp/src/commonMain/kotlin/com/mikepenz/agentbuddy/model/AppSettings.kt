@@ -24,6 +24,14 @@ data class AppSettings(
     val riskAnalysisCopilotCliPath: String = "",
     val riskAnalysisOllamaUrl: String = "http://localhost:11434",
     val riskAnalysisOllamaModel: String = "llama3.2",
+    /** Whether to enable model "thinking" / chain-of-thought. Off by default — pure latency for a structured classifier. */
+    val riskAnalysisOllamaThinking: Boolean = false,
+    /** Ollama `keep_alive` (e.g. "10m", "1h", "0"). Keeps weights resident between calls. */
+    val riskAnalysisOllamaKeepAlive: String = "10m",
+    /** Per-request timeout in seconds. Cold-start CPU eval can blow past 30s. */
+    val riskAnalysisOllamaTimeoutSeconds: Int = 60,
+    /** Optional `num_ctx` override. 0 = use model default. */
+    val riskAnalysisOllamaNumCtx: Int = 0,
     val riskAnalysisCustomPrompt: String = "",
     val autoApproveLevel: Int = 0,
     val autoDenyLevel: Int = 0,

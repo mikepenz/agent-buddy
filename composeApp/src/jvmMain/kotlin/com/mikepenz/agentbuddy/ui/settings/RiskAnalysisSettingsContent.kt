@@ -46,6 +46,7 @@ import com.mikepenz.agentbuddy.model.AppSettings
 import com.mikepenz.agentbuddy.model.RiskAnalysisBackend
 import com.mikepenz.agentbuddy.risk.CopilotInitState
 import com.mikepenz.agentbuddy.risk.OllamaInitState
+import com.mikepenz.agentbuddy.risk.OllamaMetrics
 import com.mikepenz.agentbuddy.risk.RiskMessageBuilder
 import com.mikepenz.agentbuddy.ui.components.DecisionStatus
 import com.mikepenz.agentbuddy.ui.components.GhostButton
@@ -55,7 +56,9 @@ import com.mikepenz.agentbuddy.ui.components.PillSegmented
 import com.mikepenz.agentbuddy.ui.components.StatusPill
 import com.mikepenz.agentbuddy.ui.components.TagSize
 import com.mikepenz.agentbuddy.ui.icons.LucideChevronDown
+import com.mikepenz.agentbuddy.ui.icons.LucideRefreshCw
 import com.mikepenz.agentbuddy.ui.theme.AgentBuddyColors
+import com.mikepenz.agentbuddy.ui.theme.DangerRed
 import com.mikepenz.agentbuddy.ui.theme.WarnYellow
 
 private fun openBrowserSafely(url: String) {
@@ -75,6 +78,10 @@ fun RiskAnalysisSettingsContent(
     copilotInitState: CopilotInitState = CopilotInitState.IDLE,
     ollamaModels: List<String> = emptyList(),
     ollamaInitState: OllamaInitState = OllamaInitState.IDLE,
+    ollamaLastError: String? = null,
+    ollamaLastMetrics: OllamaMetrics? = null,
+    ollamaVersion: String? = null,
+    onRefreshOllamaModels: () -> Unit = {},
     onSettingsChange: (AppSettings) -> Unit,
 ) {
     SettingSection(
@@ -109,6 +116,7 @@ fun RiskAnalysisSettingsContent(
                 copilotModels = copilotModels,
                 ollamaModels = ollamaModels,
                 ollamaReady = ollamaInitState == OllamaInitState.READY,
+                onRefreshOllamaModels = onRefreshOllamaModels,
                 onSettingsChange = onSettingsChange,
             )
         })
@@ -144,6 +152,10 @@ fun RiskAnalysisSettingsContent(
         OllamaSection(
             settings = settings,
             ollamaInitState = ollamaInitState,
+            ollamaLastError = ollamaLastError,
+            ollamaLastMetrics = ollamaLastMetrics,
+            ollamaVersion = ollamaVersion,
+            onRefreshOllamaModels = onRefreshOllamaModels,
             onSettingsChange = onSettingsChange,
         )
     }
@@ -199,6 +211,7 @@ private fun ModelPicker(
     copilotModels: List<Pair<String, String>>,
     ollamaModels: List<String>,
     ollamaReady: Boolean,
+    onRefreshOllamaModels: () -> Unit,
     onSettingsChange: (AppSettings) -> Unit,
 ) {
     when (settings.riskAnalysisBackend) {
@@ -227,20 +240,41 @@ private fun ModelPicker(
             )
         }
         RiskAnalysisBackend.OLLAMA -> {
-            if (ollamaReady && ollamaModels.isNotEmpty()) {
-                DropdownField(
-                    value = settings.riskAnalysisOllamaModel,
-                    options = ollamaModels.map { it to it },
-                    onSelect = { onSettingsChange(settings.copy(riskAnalysisOllamaModel = it)) },
-                    width = 220.dp,
-                )
-            } else {
-                SettingsTextInput(
-                    value = settings.riskAnalysisOllamaModel,
-                    onChange = { onSettingsChange(settings.copy(riskAnalysisOllamaModel = it)) },
-                    width = 220.dp,
-                    mono = true,
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (ollamaReady && ollamaModels.isNotEmpty()) {
+                    DropdownField(
+                        value = settings.riskAnalysisOllamaModel,
+                        options = ollamaModels.map { it to it },
+                        onSelect = { onSettingsChange(settings.copy(riskAnalysisOllamaModel = it)) },
+                        width = 184.dp,
+                    )
+                } else {
+                    SettingsTextInput(
+                        value = settings.riskAnalysisOllamaModel,
+                        onChange = { onSettingsChange(settings.copy(riskAnalysisOllamaModel = it)) },
+                        width = 184.dp,
+                        mono = true,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(AgentBuddyColors.surface)
+                        .border(1.dp, AgentBuddyColors.line1, RoundedCornerShape(7.dp))
+                        .clickable { onRefreshOllamaModels() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = LucideRefreshCw,
+                        contentDescription = "Refresh Ollama models",
+                        tint = AgentBuddyColors.inkSecondary,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
             }
         }
     }
@@ -393,23 +427,55 @@ private fun CopilotSection(
 private fun OllamaSection(
     settings: AppSettings,
     ollamaInitState: OllamaInitState,
+    ollamaLastError: String?,
+    ollamaLastMetrics: OllamaMetrics?,
+    ollamaVersion: String?,
+    onRefreshOllamaModels: () -> Unit,
     onSettingsChange: (AppSettings) -> Unit,
 ) {
     SettingSection(title = "Ollama backend") {
         SettingItem(label = "Connection", first = true, right = {
-            when (ollamaInitState) {
-                OllamaInitState.LOADING -> CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp), strokeWidth = 2.dp,
-                )
-                OllamaInitState.READY -> StatusPill(
-                    status = DecisionStatus.APPROVED, size = TagSize.SMALL,
-                )
-                OllamaInitState.ERROR -> StatusPill(
-                    status = DecisionStatus.TIMEOUT, size = TagSize.SMALL,
-                )
-                OllamaInitState.IDLE -> Text(
-                    text = "Idle", color = AgentBuddyColors.inkMuted, fontSize = 11.5.sp,
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (ollamaVersion != null && ollamaInitState == OllamaInitState.READY) {
+                    Text(
+                        text = "v$ollamaVersion",
+                        color = AgentBuddyColors.inkMuted,
+                        fontSize = 11.sp,
+                    )
+                }
+                when (ollamaInitState) {
+                    OllamaInitState.LOADING -> CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp), strokeWidth = 2.dp,
+                    )
+                    OllamaInitState.READY -> StatusPill(
+                        status = DecisionStatus.APPROVED, size = TagSize.SMALL,
+                    )
+                    OllamaInitState.ERROR -> StatusPill(
+                        status = DecisionStatus.TIMEOUT, size = TagSize.SMALL,
+                    )
+                    OllamaInitState.IDLE -> Text(
+                        text = "Idle", color = AgentBuddyColors.inkMuted, fontSize = 11.5.sp,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(AgentBuddyColors.surface)
+                        .border(1.dp, AgentBuddyColors.line1, RoundedCornerShape(6.dp))
+                        .clickable { onRefreshOllamaModels() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = LucideRefreshCw,
+                        contentDescription = "Retry Ollama connection",
+                        tint = AgentBuddyColors.inkSecondary,
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
             }
         })
         SettingItem(
@@ -425,10 +491,97 @@ private fun OllamaSection(
             },
         )
         SettingItem(
+            label = "Thinking",
+            desc = "Send `think: true` for reasoning models. Off keeps latency low.",
+            right = {
+                DesignToggle(
+                    checked = settings.riskAnalysisOllamaThinking,
+                    onCheckedChange = { onSettingsChange(settings.copy(riskAnalysisOllamaThinking = it)) },
+                )
+            },
+        )
+        SettingItem(
+            label = "Keep alive",
+            desc = "How long Ollama keeps the model in memory (e.g. 10m, 1h, 0).",
+            right = {
+                SettingsTextInput(
+                    value = settings.riskAnalysisOllamaKeepAlive,
+                    onChange = { onSettingsChange(settings.copy(riskAnalysisOllamaKeepAlive = it)) },
+                    width = 120.dp,
+                    mono = true,
+                )
+            },
+        )
+        SettingItem(
+            label = "Request timeout",
+            desc = "Per-call deadline in seconds. Cold-start CPU eval may need 60+.",
+            right = {
+                SettingsTextInput(
+                    value = settings.riskAnalysisOllamaTimeoutSeconds.toString(),
+                    onChange = { raw ->
+                        val parsed = raw.filter { it.isDigit() }.toIntOrNull()?.coerceIn(5, 600)
+                        if (parsed != null) {
+                            onSettingsChange(settings.copy(riskAnalysisOllamaTimeoutSeconds = parsed))
+                        }
+                    },
+                    width = 80.dp,
+                    mono = true,
+                )
+            },
+        )
+        SettingItem(
+            label = "Context size",
+            desc = "`num_ctx` override. 0 = use model default.",
+            right = {
+                SettingsTextInput(
+                    value = settings.riskAnalysisOllamaNumCtx.toString(),
+                    onChange = { raw ->
+                        val parsed = raw.filter { it.isDigit() }.toIntOrNull()?.coerceIn(0, 131072)
+                        if (parsed != null) {
+                            onSettingsChange(settings.copy(riskAnalysisOllamaNumCtx = parsed))
+                        }
+                    },
+                    width = 80.dp,
+                    mono = true,
+                )
+            },
+        )
+        SettingItem(
             label = "Download Ollama",
             desc = "Opens ollama.com/download in your browser.",
             right = { OutlineButton(text = "Open", onClick = { openBrowserSafely("https://ollama.com/download") }) },
         )
+    }
+
+    AnimatedVisibility(visible = ollamaLastError != null) {
+        NoticeBanner(
+            text = "Ollama error: ${ollamaLastError.orEmpty()}",
+            color = DangerRed,
+        )
+    }
+
+    AnimatedVisibility(visible = ollamaLastMetrics != null) {
+        val m = ollamaLastMetrics
+        if (m != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 780.dp)
+                    .clip(RoundedCornerShape(7.dp))
+                    .background(AgentBuddyColors.surface)
+                    .border(1.dp, AgentBuddyColors.line1, RoundedCornerShape(7.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    text = "Last call: ${m.totalMs}ms total · load ${m.loadMs}ms · " +
+                        "prompt ${m.promptTokens}t/${m.promptEvalMs}ms · " +
+                        "eval ${m.evalTokens}t/${m.evalMs}ms",
+                    color = AgentBuddyColors.inkSecondary,
+                    fontSize = 11.5.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
     }
 }
 
