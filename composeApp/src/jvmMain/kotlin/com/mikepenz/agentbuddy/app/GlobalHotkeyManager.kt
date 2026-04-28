@@ -5,7 +5,6 @@ import com.mikepenz.agentbuddy.di.AppEnvironment
 import com.mikepenz.agentbuddy.di.AppScope
 import com.mikepenz.agentbuddy.model.Decision
 import com.mikepenz.agentbuddy.model.GlobalHotkey
-import com.mikepenz.agentbuddy.model.HotkeyModifier
 import com.mikepenz.agentbuddy.state.AppStateManager
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -108,12 +107,17 @@ class GlobalHotkeyManager(
             log.w { "Cannot register $role hotkey ($target) — Nucleus not initialized" }
             return
         }
-        val nucleusModifiers = target.modifiers.combinedNativeFlag()
+        // Translate to platform-native bits. Nucleus' .dylib/.so/.dll pass
+        // these directly to Carbon / X11 / WM_HOTKEY, so they have to match
+        // the OS APIs — AWT VK_* + our internal flag bits would otherwise be
+        // garbage to Carbon (kVK_*) or X11.
+        val nativeMods = HotkeyTranslation.nativeModifiers(target.modifiers)
+        val nativeKey = HotkeyTranslation.nativeKeyCode(target.keyCode)
         val handle = runCatching {
             onEdt<Long> {
                 GlobalHotKeyManager.register(
-                    nucleusModifiers,
-                    target.keyCode,
+                    nativeMods,
+                    nativeKey,
                     HotKeyListener { mods, key ->
                         log.d { "$role hotkey listener fired (mods=$mods, key=$key)" }
                         onHotkeyFired(role)
@@ -121,19 +125,27 @@ class GlobalHotkeyManager(
                 )
             }
         }.getOrElse {
-            log.e(it) { "Failed to register $role hotkey: $target (mods=$nucleusModifiers, key=${target.keyCode})" }
+            log.e(it) {
+                "Failed to register $role hotkey: $target " +
+                    "(awtKey=${target.keyCode} → nativeKey=$nativeKey, nativeMods=$nativeMods)"
+            }
             return
         }
-        if (handle == 0L) {
+        // Nucleus uses 0L for "manager not ready" / unsupported-platform
+        // fall-through and -1L for "native bridge returned an error". Treat
+        // anything <= 0 as a failed registration.
+        if (handle <= 0L) {
             log.w {
                 "Nucleus refused to register $role hotkey $target " +
-                    "(mods=$nucleusModifiers, key=${target.keyCode}): ${GlobalHotKeyManager.lastError}"
+                    "(awtKey=${target.keyCode} → nativeKey=$nativeKey, nativeMods=$nativeMods, " +
+                    "handle=$handle): ${GlobalHotKeyManager.lastError}"
             }
             return
         }
         setHandle(role, handle, target)
         log.i {
-            "Registered $role hotkey: $target (mods=$nucleusModifiers, key=${target.keyCode}, handle=$handle)"
+            "Registered $role hotkey: $target " +
+                "(awtKey=${target.keyCode} → nativeKey=$nativeKey, nativeMods=$nativeMods, handle=$handle)"
         }
     }
 
@@ -174,21 +186,6 @@ class GlobalHotkeyManager(
     }
 
     private enum class HotkeyRole { APPROVE, DENY }
-}
-
-private fun Set<HotkeyModifier>.combinedNativeFlag(): Int =
-    fold(0) { acc, mod -> acc or mod.nativeFlag() }
-
-// Mirrors the bit values the Nucleus library uses internally
-// (`HotKeyModifier.nativeFlag`) — copied here because the property is
-// `internal` to the global-hotkey module and not callable from outside.
-// These match Windows' MOD_* constants and the Nucleus library normalises
-// them per-platform before reaching the native bridge.
-private fun HotkeyModifier.nativeFlag(): Int = when (this) {
-    HotkeyModifier.ALT -> 1
-    HotkeyModifier.CONTROL -> 2
-    HotkeyModifier.SHIFT -> 4
-    HotkeyModifier.META -> 8
 }
 
 /**
