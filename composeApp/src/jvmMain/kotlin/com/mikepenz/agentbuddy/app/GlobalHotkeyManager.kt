@@ -12,6 +12,9 @@ import dev.zacsweers.metro.SingleIn
 import io.github.kdroidfilter.nucleus.globalhotkey.GlobalHotKeyManager
 import io.github.kdroidfilter.nucleus.globalhotkey.HotKeyListener
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -46,6 +49,18 @@ class GlobalHotkeyManager(
     private var denyHandle: Long = 0L
     private var approveBound: GlobalHotkey? = null
     private var denyBound: GlobalHotkey? = null
+
+    /**
+     * UI-visible registration errors per role. Null = no error (either no
+     * binding configured or registration succeeded). Non-null = the OS
+     * rejected the combination — usually because it's already in use system
+     * wide. The settings UI surfaces this under the relevant capture field.
+     */
+    private val _approveError = MutableStateFlow<String?>(null)
+    val approveError: StateFlow<String?> = _approveError.asStateFlow()
+
+    private val _denyError = MutableStateFlow<String?>(null)
+    val denyError: StateFlow<String?> = _denyError.asStateFlow()
 
     fun start() {
         if (collectorJob != null) return
@@ -103,21 +118,29 @@ class GlobalHotkeyManager(
             onEdtUnit { GlobalHotKeyManager.unregister(handleRef) }
             setHandle(role, 0L, null)
         }
+        setError(role, null)
         if (target == null) return
         if (!initialized) {
             log.w { "Cannot register $role hotkey ($target) — Nucleus not initialized" }
+            setError(role, "Global hotkey support is unavailable on this platform")
             return
         }
         // Nucleus' native bridges (Carbon on macOS, X11 on Linux, WM_HOTKEY
         // on Windows) already translate AWT VK_* codes to the appropriate
         // platform key codes and expect the portable modifier bitmask
         // (1=ALT, 2=CONTROL, 4=SHIFT, 8=META). We pass through unchanged.
+        //
+        // **API order matters**: GlobalHotKeyManager.register(keyCode, modifiers, listener).
+        // The first int is the AWT VK_* code, the second is the portable
+        // modifier bitmask. Calling these in the wrong order makes Nucleus
+        // try to translate the modifier bits as a key code and reject the
+        // call as "Unsupported key code" — which has bitten us before.
         val portableMods = target.modifiers.fold(0) { acc, m -> acc or m.portableFlag() }
         val handle = runCatching {
             onEdt<Long> {
                 GlobalHotKeyManager.register(
-                    portableMods,
                     target.keyCode,
+                    portableMods,
                     HotKeyListener { mods, key ->
                         log.d { "$role hotkey listener fired (mods=$mods, key=$key)" }
                         onHotkeyFired(role)
@@ -125,28 +148,51 @@ class GlobalHotkeyManager(
                 )
             }
         }.getOrElse {
-            log.e(it) { "Failed to register $role hotkey: $target (mods=$portableMods, key=${target.keyCode})" }
+            log.e(it) { "Failed to register $role hotkey: $target (key=${target.keyCode}, mods=$portableMods)" }
+            setError(role, "Failed to register: ${it.message ?: it::class.simpleName}")
             return
         }
         // Nucleus returns 0L for "manager not ready" / unsupported-platform
         // fall-through and -1L when its native bridge reports an error
         // (e.g. macOS' RegisterEventHotKey returned non-noErr because the
-        // shortcut conflicts with a system-reserved combo, or AWT key code
-        // isn't in the bridge's translation table). Treat anything <= 0 as
-        // a failed registration and surface Nucleus' lastError so the user
-        // can tell why.
+        // shortcut conflicts with a system-reserved combo). Treat anything
+        // <= 0 as a failed registration and surface Nucleus' lastError.
         if (handle <= 0L) {
+            val nucleusErr = GlobalHotKeyManager.lastError ?: "registration rejected by OS"
             log.w {
                 "Nucleus refused to register $role hotkey $target " +
-                    "(mods=$portableMods, key=${target.keyCode}, handle=$handle): " +
-                    "${GlobalHotKeyManager.lastError}"
+                    "(key=${target.keyCode}, mods=$portableMods, handle=$handle): $nucleusErr"
             }
+            setError(role, friendlyError(nucleusErr))
             return
         }
         setHandle(role, handle, target)
         log.i {
-            "Registered $role hotkey: $target (mods=$portableMods, key=${target.keyCode}, handle=$handle)"
+            "Registered $role hotkey: $target (key=${target.keyCode}, mods=$portableMods, handle=$handle)"
         }
+    }
+
+    private fun setError(role: HotkeyRole, message: String?) {
+        when (role) {
+            HotkeyRole.APPROVE -> _approveError.value = message
+            HotkeyRole.DENY -> _denyError.value = message
+        }
+    }
+
+    /**
+     * Maps Nucleus' raw error strings to short messages friendly enough to
+     * render in a small UI hint. Falls back to the raw text when no mapping
+     * matches so the user sees *something* rather than an opaque label.
+     */
+    private fun friendlyError(raw: String): String = when {
+        raw.contains("RegisterEventHotKey", ignoreCase = true) ||
+            raw.contains("already", ignoreCase = true) ->
+            "Already in use by another app"
+        raw.contains("Unsupported key code", ignoreCase = true) ->
+            "This key isn't supported as a global shortcut"
+        raw.contains("Not initialized", ignoreCase = true) ->
+            "Global hotkey support is unavailable"
+        else -> raw
     }
 
     private fun setHandle(role: HotkeyRole, handle: Long, bound: GlobalHotkey?) {

@@ -35,6 +35,8 @@ private val isMacOs = System.getProperty("os.name", "").contains("Mac", ignoreCa
 fun GeneralSettingsContent(
     settings: AppSettings,
     historyCount: Int,
+    approveHotkeyError: String? = null,
+    denyHotkeyError: String? = null,
     onSettingsChange: (AppSettings) -> Unit,
     onClearHistory: () -> Unit,
     onShowLicenses: () -> Unit,
@@ -127,20 +129,24 @@ fun GeneralSettingsContent(
     ) {
         SettingItem(
             label = "Approve oldest",
+            desc = approveHotkeyError,
             first = true,
             right = {
                 HotkeyCaptureField(
                     hotkey = settings.approveOldestHotkey,
                     onChange = { onSettingsChange(settings.copy(approveOldestHotkey = it)) },
+                    hasError = approveHotkeyError != null,
                 )
             },
         )
         SettingItem(
             label = "Deny oldest",
+            desc = denyHotkeyError,
             right = {
                 HotkeyCaptureField(
                     hotkey = settings.denyOldestHotkey,
                     onChange = { onSettingsChange(settings.copy(denyOldestHotkey = it)) },
+                    hasError = denyHotkeyError != null,
                 )
             },
         )

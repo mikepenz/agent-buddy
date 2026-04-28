@@ -46,6 +46,7 @@ import com.mikepenz.agentbuddy.model.GlobalHotkey
 import com.mikepenz.agentbuddy.model.HotkeyModifier
 import com.mikepenz.agentbuddy.ui.icons.LucideX
 import com.mikepenz.agentbuddy.ui.theme.AgentBuddyColors
+import com.mikepenz.agentbuddy.ui.theme.DangerRed
 import java.awt.event.KeyEvent as AwtKeyEvent
 
 /**
@@ -61,6 +62,7 @@ import java.awt.event.KeyEvent as AwtKeyEvent
 fun HotkeyCaptureField(
     hotkey: GlobalHotkey?,
     onChange: (GlobalHotkey?) -> Unit,
+    hasError: Boolean = false,
 ) {
     var capturing by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -98,7 +100,11 @@ fun HotkeyCaptureField(
             .background(AgentBuddyColors.surface)
             .border(
                 1.dp,
-                if (capturing) AgentBuddyColors.inkSecondary else AgentBuddyColors.line1,
+                when {
+                    hasError -> DangerRed.copy(alpha = 0.55f)
+                    capturing -> AgentBuddyColors.inkSecondary
+                    else -> AgentBuddyColors.line1
+                },
                 RoundedCornerShape(7.dp),
             )
             .clickable { onClickField() }
