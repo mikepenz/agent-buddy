@@ -433,6 +433,18 @@ private fun OllamaSection(
     onRefreshOllamaModels: () -> Unit,
     onSettingsChange: (AppSettings) -> Unit,
 ) {
+    // AnimatedVisibility content stacks children Box-style, so multiple
+    // top-level emissions would overlap. Wrap in a Column with explicit
+    // spacing (matching the parent settings layout).
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+    AnimatedVisibility(visible = ollamaLastError != null) {
+        NoticeBanner(
+            text = "Ollama error: ${ollamaLastError.orEmpty()}",
+            color = DangerRed,
+        )
+    }
+
     SettingSection(title = "Ollama backend") {
         SettingItem(label = "Connection", first = true, right = {
             Row(
@@ -553,13 +565,6 @@ private fun OllamaSection(
         )
     }
 
-    AnimatedVisibility(visible = ollamaLastError != null) {
-        NoticeBanner(
-            text = "Ollama error: ${ollamaLastError.orEmpty()}",
-            color = DangerRed,
-        )
-    }
-
     AnimatedVisibility(visible = ollamaLastMetrics != null) {
         val m = ollamaLastMetrics
         if (m != null) {
@@ -583,6 +588,7 @@ private fun OllamaSection(
             }
         }
     }
+    } // end Column wrapper
 }
 
 @Composable

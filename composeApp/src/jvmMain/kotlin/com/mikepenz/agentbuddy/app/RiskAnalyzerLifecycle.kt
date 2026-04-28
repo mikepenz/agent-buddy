@@ -132,6 +132,7 @@ class RiskAnalyzerLifecycle(
                 ollamaStateHolder.setVersion(analyzer.version)
                 ollamaStateHolder.setLastError(null)
                 ollamaStateHolder.setInitState(OllamaInitState.READY)
+                reconcileSelectedOllamaModel(models, analyzer)
             } catch (e: Exception) {
                 log.e(e) { "Failed to start Ollama analyzer" }
                 ollamaStateHolder.setLastError(analyzer.lastError ?: e.message)
@@ -156,6 +157,23 @@ class RiskAnalyzerLifecycle(
         analyzer.numCtx = settings.riskAnalysisOllamaNumCtx
     }
 
+    /**
+     * If the currently selected Ollama model is missing from [models], replace
+     * it with the first available one. Persisting an unknown model leaves the
+     * dropdown empty and analysis fails with "model not found" on every call.
+     */
+    private fun reconcileSelectedOllamaModel(models: List<String>, analyzer: OllamaRiskAnalyzer) {
+        if (models.isEmpty()) return
+        val current = stateManager.state.value.settings.riskAnalysisOllamaModel
+        if (current in models) return
+        val replacement = models.first()
+        log.w { "Selected model '$current' not in /api/tags; falling back to '$replacement'" }
+        analyzer.model = replacement
+        stateManager.updateSettings(
+            stateManager.state.value.settings.copy(riskAnalysisOllamaModel = replacement),
+        )
+    }
+
     private fun wireOllamaListeners(analyzer: OllamaRiskAnalyzer) {
         analyzer.onMetrics = { ollamaStateHolder.setLastMetrics(it) }
         analyzer.onError = { ollamaStateHolder.setLastError(it) }
@@ -173,6 +191,7 @@ class RiskAnalyzerLifecycle(
                 ollamaStateHolder.setModels(models)
                 ollamaStateHolder.setLastError(null)
                 ollamaStateHolder.setInitState(OllamaInitState.READY)
+                reconcileSelectedOllamaModel(models, analyzer)
                 true
             },
             onFailure = {
