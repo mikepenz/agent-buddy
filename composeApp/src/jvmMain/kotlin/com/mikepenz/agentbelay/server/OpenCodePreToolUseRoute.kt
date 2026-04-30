@@ -11,8 +11,6 @@ import io.ktor.server.routing.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.datetime.Clock
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import kotlin.coroutines.cancellation.CancellationException
 
 private val logger = Logger.withTag("OpenCodePreToolUseRoute")
@@ -25,7 +23,7 @@ fun Route.openCodePreToolUseRoute(
 ) {
     post("/pre-tool-use-opencode") {
         val rawBody = call.receiveText()
-        val request = adapter.parse(rawBody)
+        val request = adapter.parsePreToolUse(rawBody)
         if (request == null) {
             call.respondText("{}", contentType = ContentType.Application.Json)
             return@post
@@ -44,7 +42,7 @@ fun Route.openCodePreToolUseRoute(
 
         when (severity) {
             ProtectionMode.AUTO_BLOCK -> {
-                val responseJson = buildOpenCodePreToolDeny(combinedMessage)
+                val responseJson = adapter.buildPreToolUseDenyResponse(combinedMessage)
                 logOpenCodeProtectionHit(stateManager, request, Decision.PROTECTION_BLOCKED, primaryHit, combinedMessage, responseJson)
                 call.respondText(responseJson, contentType = ContentType.Application.Json)
             }
@@ -52,6 +50,7 @@ fun Route.openCodePreToolUseRoute(
             ProtectionMode.ASK_AUTO_BLOCK -> {
                 handleOpenCodeAskMode(
                     stateManager = stateManager,
+                    adapter = adapter,
                     request = request,
                     combinedMessage = combinedMessage,
                     timeoutMs = stateManager.state.value.settings.defaultTimeoutSeconds * 1000L,
@@ -63,6 +62,7 @@ fun Route.openCodePreToolUseRoute(
             ProtectionMode.ASK -> {
                 handleOpenCodeAskMode(
                     stateManager = stateManager,
+                    adapter = adapter,
                     request = request,
                     combinedMessage = combinedMessage,
                     timeoutMs = Long.MAX_VALUE,
@@ -72,7 +72,7 @@ fun Route.openCodePreToolUseRoute(
             }
 
             ProtectionMode.LOG_ONLY -> {
-                val responseJson = buildOpenCodePreToolAllow()
+                val responseJson = adapter.buildPreToolUseAllowResponse()
                 logOpenCodeProtectionHit(stateManager, request, Decision.PROTECTION_LOGGED, primaryHit, combinedMessage, responseJson)
                 call.respondText(responseJson, contentType = ContentType.Application.Json)
             }
@@ -86,6 +86,7 @@ fun Route.openCodePreToolUseRoute(
 
 private suspend fun handleOpenCodeAskMode(
     stateManager: AppStateManager,
+    adapter: OpenCodeAdapter,
     request: ApprovalRequest,
     combinedMessage: String,
     timeoutMs: Long,
@@ -104,7 +105,7 @@ private suspend fun handleOpenCodeAskMode(
         }
 
         if (result == null) {
-            val responseJson = buildOpenCodePreToolDeny(combinedMessage)
+            val responseJson = adapter.buildPreToolUseDenyResponse(combinedMessage)
             stateManager.resolve(
                 requestId = request.id,
                 decision = Decision.PROTECTION_BLOCKED,
@@ -119,7 +120,7 @@ private suspend fun handleOpenCodeAskMode(
         when (result.decision) {
             Decision.APPROVED, Decision.AUTO_APPROVED, Decision.ALWAYS_ALLOWED,
             Decision.PROTECTION_OVERRIDDEN -> {
-                val responseJson = buildOpenCodePreToolAllow()
+                val responseJson = adapter.buildPreToolUseAllowResponse()
                 stateManager.updateHistoryRawResponse(request.id, responseJson)
                 try {
                     call.respondText(responseJson, contentType = ContentType.Application.Json)
@@ -130,7 +131,7 @@ private suspend fun handleOpenCodeAskMode(
 
             Decision.DENIED, Decision.AUTO_DENIED, Decision.TIMEOUT,
             Decision.PROTECTION_BLOCKED -> {
-                val responseJson = buildOpenCodePreToolDeny(result.feedback?.takeIf { it.isNotBlank() } ?: combinedMessage)
+                val responseJson = adapter.buildPreToolUseDenyResponse(result.feedback?.takeIf { it.isNotBlank() } ?: combinedMessage)
                 stateManager.updateHistoryRawResponse(request.id, responseJson)
                 try {
                     call.respondText(responseJson, contentType = ContentType.Application.Json)
@@ -144,7 +145,7 @@ private suspend fun handleOpenCodeAskMode(
             }
 
             Decision.PROTECTION_LOGGED -> {
-                val responseJson = buildOpenCodePreToolAllow()
+                val responseJson = adapter.buildPreToolUseAllowResponse()
                 stateManager.updateHistoryRawResponse(request.id, responseJson)
                 try {
                     call.respondText(responseJson, contentType = ContentType.Application.Json)
@@ -164,18 +165,6 @@ private suspend fun handleOpenCodeAskMode(
         )
     }
 }
-
-// Response uses same { behavior: allow/deny } shape as the approval route.
-// The plugin checks `behavior` to decide whether to throw.
-
-private fun buildOpenCodePreToolAllow(): String = buildJsonObject {
-    put("behavior", "allow")
-}.toString()
-
-private fun buildOpenCodePreToolDeny(reason: String): String = buildJsonObject {
-    put("behavior", "deny")
-    put("message", reason)
-}.toString()
 
 private fun logOpenCodeProtectionHit(
     stateManager: AppStateManager,

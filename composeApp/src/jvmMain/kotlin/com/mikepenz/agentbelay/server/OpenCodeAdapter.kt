@@ -1,8 +1,10 @@
 package com.mikepenz.agentbelay.server
 
 import co.touchlab.kermit.Logger
+import com.mikepenz.agentbelay.harness.HarnessAdapter
 import com.mikepenz.agentbelay.model.ApprovalRequest
 import com.mikepenz.agentbelay.model.HookInput
+import com.mikepenz.agentbelay.model.PermissionSuggestion
 import com.mikepenz.agentbelay.model.Source
 import com.mikepenz.agentbelay.model.ToolType
 import kotlinx.datetime.Clock
@@ -11,15 +13,16 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
 import java.util.UUID
 
 /**
  * Tool name mapping from OpenCode's native tool names to the canonical
- * display names used in Agent Buddy's UI. OpenCode uses a mix of lowercase
+ * display names used in Agent Belay's UI. OpenCode uses a mix of lowercase
  * tool names similar to Claude Code / Copilot.
  */
 private val TOOL_NAME_MAP = mapOf(
@@ -39,9 +42,12 @@ private val TOOL_NAME_MAP = mapOf(
 )
 
 /**
- * Parses OpenCode plugin payloads into the canonical [ApprovalRequest] model.
+ * Parses OpenCode plugin payloads into the canonical [ApprovalRequest] model
+ * and builds the simple `{ behavior, message }` envelope back. The plugin
+ * shipped by [com.mikepenz.agentbelay.hook.OpenCodeBridgeInstaller] is the
+ * sole producer of these payloads, so the schema is whatever we decide to
+ * emit there:
  *
- * The Agent Buddy plugin for OpenCode sends a JSON payload shaped as:
  * ```json
  * {
  *   "toolName": "edit",
@@ -52,14 +58,17 @@ private val TOOL_NAME_MAP = mapOf(
  * }
  * ```
  *
- * This adapter is intentionally lenient — missing fields produce sensible
- * defaults rather than parse failures, because the plugin we control can
- * evolve independently of the server.
+ * Since we control both ends, parsing is intentionally lenient — missing
+ * fields produce sensible defaults rather than errors.
  */
-class OpenCodeAdapter {
+class OpenCodeAdapter : HarnessAdapter {
 
     private val logger = Logger.withTag("OpenCodeAdapter")
     private val json = Json { ignoreUnknownKeys = true }
+
+    override fun parsePermissionRequest(rawJson: String): ApprovalRequest? = parse(rawJson)
+
+    override fun parsePreToolUse(rawJson: String): ApprovalRequest? = parse(rawJson)
 
     fun parse(rawJson: String): ApprovalRequest? {
         return try {
@@ -129,4 +138,49 @@ class OpenCodeAdapter {
         }
         return Clock.System.now()
     }
+
+    // Response shape for our OpenCode plugin: a flat
+    // `{ "behavior": "allow" | "deny", "message"?: string }` object — same
+    // envelope is reused for permissionRequest and preToolUse since the
+    // plugin only inspects `behavior` to decide whether to throw.
+
+    override fun buildPermissionAllowResponse(
+        request: ApprovalRequest,
+        updatedInput: Map<String, JsonElement>?,
+    ): String = buildJsonObject {
+        put("behavior", "allow")
+    }.toString()
+
+    override fun buildPermissionAlwaysAllowResponse(
+        request: ApprovalRequest,
+        suggestions: List<PermissionSuggestion>,
+    ): String {
+        // OpenCode does not support write-through permission persistence
+        // via the plugin envelope; collapse to a plain allow.
+        return buildPermissionAllowResponse(request, updatedInput = null)
+    }
+
+    override fun buildPermissionDenyResponse(
+        request: ApprovalRequest,
+        message: String,
+    ): String = buildJsonObject {
+        put("behavior", "deny")
+        put("message", message)
+    }.toString()
+
+    override fun buildPreToolUseAllowResponse(): String = buildJsonObject {
+        put("behavior", "allow")
+    }.toString()
+
+    override fun buildPreToolUseDenyResponse(reason: String): String = buildJsonObject {
+        put("behavior", "deny")
+        put("message", reason)
+    }.toString()
+
+    /**
+     * OpenCode's plugin pipeline doesn't expose a post-tool result-mutation
+     * hook; returning null tells the route to pass the original output
+     * through untouched.
+     */
+    override fun buildPostToolUseRedactedResponse(updatedOutput: JsonObject): String? = null
 }

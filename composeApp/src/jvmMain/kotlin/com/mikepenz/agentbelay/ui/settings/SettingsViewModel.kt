@@ -130,7 +130,7 @@ class SettingsViewModel(
             isOpenCodeRegistered,
             copilotState,
         ) { state, hookRegistered, copilotRegistered, openCodeRegistered, copilot ->
-            UiBase(state, hookRegistered, copilotRegistered, openCodeRegistered, copilot, null)
+            UiBase(state, hookRegistered, copilotRegistered, openCodeRegistered, copilot)
         },
         ollamaState,
         hotkeyErrors,
@@ -400,7 +400,7 @@ data class SettingsUiState(
     val historyCount: Int,
     val isHookRegistered: Boolean,
     val isCopilotRegistered: Boolean,
-    val isOpenCodeRegistered: Boolean,
+    val isOpenCodeRegistered: Boolean = false,
     val copilotModels: List<Pair<String, String>>,
     val copilotInitState: CopilotInitState,
     val ollamaModels: List<String> = emptyList(),
@@ -418,5 +418,4 @@ private data class UiBase(
     val copilotRegistered: Boolean,
     val openCodeRegistered: Boolean,
     val copilot: Pair<List<Pair<String, String>>, CopilotInitState>,
-    val ollama: OllamaSnapshot?,
 )

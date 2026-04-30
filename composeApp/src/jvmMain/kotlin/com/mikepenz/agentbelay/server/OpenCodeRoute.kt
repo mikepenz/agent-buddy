@@ -9,8 +9,6 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import kotlin.coroutines.cancellation.CancellationException
 
 private val logger = Logger.withTag("OpenCodeRoute")
@@ -22,7 +20,7 @@ fun Route.openCodeApprovalRoute(
 ) {
     post("/approve-opencode") {
         val rawBody = call.receiveText()
-        val request = adapter.parse(rawBody)
+        val request = adapter.parsePermissionRequest(rawBody)
         if (request == null) {
             call.respondText("Invalid request", status = HttpStatusCode.BadRequest)
             return@post
@@ -44,7 +42,7 @@ fun Route.openCodeApprovalRoute(
             }
 
             if (result == null) {
-                val responseJson = openCodeDenyResponse("Request timed out").toString()
+                val responseJson = adapter.buildPermissionDenyResponse(request, "Request timed out")
                 stateManager.resolve(
                     requestId = request.id,
                     decision = Decision.TIMEOUT,
@@ -58,14 +56,14 @@ fun Route.openCodeApprovalRoute(
 
             val responseJson = when (result.decision) {
                 Decision.APPROVED, Decision.AUTO_APPROVED, Decision.ALWAYS_ALLOWED ->
-                    openCodeAllowResponse().toString()
+                    adapter.buildPermissionAllowResponse(request, updatedInput = null)
                 Decision.DENIED, Decision.AUTO_DENIED, Decision.TIMEOUT ->
-                    openCodeDenyResponse(result.feedback ?: "Request denied").toString()
+                    adapter.buildPermissionDenyResponse(request, result.feedback ?: "Request denied")
                 Decision.CANCELLED_BY_CLIENT, Decision.RESOLVED_EXTERNALLY -> null
                 Decision.PROTECTION_BLOCKED ->
-                    openCodeDenyResponse(result.feedback ?: "Blocked by protection rule").toString()
+                    adapter.buildPermissionDenyResponse(request, result.feedback ?: "Blocked by protection rule")
                 Decision.PROTECTION_LOGGED, Decision.PROTECTION_OVERRIDDEN ->
-                    openCodeAllowResponse().toString()
+                    adapter.buildPermissionAllowResponse(request, updatedInput = null)
             }
 
             if (responseJson != null) {
@@ -87,17 +85,4 @@ fun Route.openCodeApprovalRoute(
             )
         }
     }
-}
-
-// Response shape for our OpenCode plugin. We control both sides so we use a
-// simple flat object: `{ "behavior": "allow" }` or
-// `{ "behavior": "deny", "message": "..." }`.
-
-private fun openCodeAllowResponse() = buildJsonObject {
-    put("behavior", "allow")
-}
-
-private fun openCodeDenyResponse(reason: String) = buildJsonObject {
-    put("behavior", "deny")
-    put("message", reason)
 }
