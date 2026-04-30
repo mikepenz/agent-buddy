@@ -24,6 +24,7 @@ class ApprovalServer(
     private val logger = Logger.withTag("ApprovalServer")
     private val adapter = ClaudeCodeAdapter()
     private val copilotAdapter = CopilotAdapter()
+    private val openCodeAdapter = OpenCodeAdapter()
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
 
     fun start(port: Int, host: String) {
@@ -57,6 +58,8 @@ class ApprovalServer(
                     approvalRoute(stateManager, adapter, onNewApproval)
                     copilotApprovalRoute(stateManager, copilotAdapter, onNewApproval)
                     copilotPreToolUseRoute(stateManager, copilotAdapter, protectionEngine, onNewApproval)
+                    openCodeApprovalRoute(stateManager, openCodeAdapter, onNewApproval)
+                    openCodePreToolUseRoute(stateManager, openCodeAdapter, protectionEngine, onNewApproval)
                     preToolUseRoute(stateManager, adapter, protectionEngine, onNewApproval)
                     postToolUseRoute(stateManager)
                     capabilityRoute(capabilityEngine)
