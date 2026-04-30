@@ -51,6 +51,7 @@ import com.mikepenz.agentbelay.model.Source
 import com.mikepenz.agentbelay.model.SpecialToolParser
 import com.mikepenz.agentbelay.model.ToolType
 import com.mikepenz.agentbelay.risk.RiskAutoActionOrchestrator.Companion.AUTO_DENY_COUNTDOWN
+import com.mikepenz.agentbelay.ui.detail.PopOutSpec
 import com.mikepenz.agentbelay.ui.theme.PreviewScaffold
 import com.mikepenz.agentbelay.ui.theme.RiskCritical
 import com.mikepenz.agentbelay.ui.theme.RiskSafe
@@ -85,7 +86,7 @@ fun ApprovalCard(
     awayMode: Boolean = false,
     prominentAlwaysAllow: Boolean = false,
     now: Instant = Clock.System.now(),
-    onPopOut: ((title: String, content: String) -> Unit)? = null,
+    onPopOut: ((PopOutSpec) -> Unit)? = null,
 ) {
     val borderColor by animateColorAsState(
         targetValue = when {

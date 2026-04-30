@@ -12,7 +12,7 @@ import dev.zacsweers.metrox.viewmodel.metroViewModel
  */
 @Composable
 fun ApprovalsTabHost(
-    onPopOut: ((title: String, content: String) -> Unit)? = null,
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
 ) {
     val viewModel: ApprovalsViewModel = metroViewModel()
     val ui by viewModel.uiState.collectAsState()
