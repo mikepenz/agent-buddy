@@ -118,6 +118,7 @@ class RiskAnalyzerLifecycle(
         openaiApiAnalyzer?.shutdown()
         openaiApiAnalyzer = null
         openaiApiStateHolder.setInitState(OpenaiApiInitState.IDLE)
+        openaiApiStateHolder.setLastMetrics(null)
 
         var analyzer = ollamaAnalyzer
         val urlChanged = analyzer != null && analyzer.baseUrl != settings.riskAnalysisOllamaUrl.trimEnd('/')
@@ -198,6 +199,7 @@ class RiskAnalyzerLifecycle(
         ollamaAnalyzer?.shutdown()
         ollamaAnalyzer = null
         ollamaStateHolder.setInitState(OllamaInitState.IDLE)
+        ollamaStateHolder.setLastMetrics(null)
 
         var analyzer = openaiApiAnalyzer
         val urlChanged = analyzer != null && analyzer.baseUrl != settings.riskAnalysisOpenaiApiUrl.trimEnd('/')
@@ -307,9 +309,11 @@ class RiskAnalyzerLifecycle(
         ollamaAnalyzer?.shutdown()
         ollamaAnalyzer = null
         ollamaStateHolder.setInitState(OllamaInitState.IDLE)
+        ollamaStateHolder.setLastMetrics(null)
         openaiApiAnalyzer?.shutdown()
         openaiApiAnalyzer = null
         openaiApiStateHolder.setInitState(OpenaiApiInitState.IDLE)
+        openaiApiStateHolder.setLastMetrics(null)
 
         var analyzer = copilotAnalyzer
         if (analyzer == null) {
@@ -346,9 +350,11 @@ class RiskAnalyzerLifecycle(
         ollamaAnalyzer?.shutdown()
         ollamaAnalyzer = null
         ollamaStateHolder.setInitState(OllamaInitState.IDLE)
+        ollamaStateHolder.setLastMetrics(null)
         openaiApiAnalyzer?.shutdown()
         openaiApiAnalyzer = null
         openaiApiStateHolder.setInitState(OpenaiApiInitState.IDLE)
+        openaiApiStateHolder.setLastMetrics(null)
         activeAnalyzerHolder.set(claudeAnalyzer)
     }
 

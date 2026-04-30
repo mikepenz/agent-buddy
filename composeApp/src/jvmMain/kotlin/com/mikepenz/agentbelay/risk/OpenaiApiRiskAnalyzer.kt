@@ -42,7 +42,7 @@ import kotlinx.serialization.json.putJsonObject
  */
 class OpenaiApiRiskAnalyzer(
     baseUrl: String = "http://localhost:8080",
-    model: String = "lora",
+    model: String = "llama3.2",
     customSystemPrompt: String = "",
 ) : RiskAnalyzer {
     private val log = Logger.withTag("OpenaiApiRiskAnalyzer")
@@ -173,6 +173,7 @@ class OpenaiApiRiskAnalyzer(
     private suspend fun callOpenAI(hookInput: HookInput): RiskAnalysis {
         val userMessage = RiskMessageBuilder.buildUserMessage(hookInput)
         log.i { "Analyzing ${hookInput.toolName} with model=$model" }
+        val startMs = System.currentTimeMillis()
 
         val requestBody = buildJsonObject {
             put("model", model)
@@ -206,6 +207,7 @@ class OpenaiApiRiskAnalyzer(
                     put("content", userMessage)
                 }
             }
+            // `options.n_ctx` is a llama.cpp extension; ignored by other OpenAI-compatible servers.
             putJsonObject("options") {
                 if (numCtx > 0) put("n_ctx", numCtx)
             }
@@ -260,7 +262,7 @@ class OpenaiApiRiskAnalyzer(
         }
         val level = parsed.level.coerceIn(1, 5)
 
-        val metrics = chatResponse.toMetrics()
+        val metrics = chatResponse.toMetrics(System.currentTimeMillis() - startMs)
         if (metrics != null) {
             lastMetrics = metrics
             onMetrics?.invoke(metrics)
@@ -302,10 +304,10 @@ class OpenaiApiRiskAnalyzer(
         val choices: List<Choice> = emptyList(),
         val usage: Usage? = null,
     ) {
-        fun toMetrics(): OpenaiApiMetrics? {
+        fun toMetrics(totalMs: Long): OpenaiApiMetrics? {
             val usage = usage ?: return null
             return OpenaiApiMetrics(
-                totalMs = 0,
+                totalMs = totalMs,
                 promptTokens = usage.promptTokens ?: 0,
                 evalTokens = usage.completionTokens ?: 0,
             )

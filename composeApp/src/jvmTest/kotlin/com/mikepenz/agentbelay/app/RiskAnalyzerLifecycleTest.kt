@@ -60,6 +60,10 @@ class RiskAnalyzerLifecycleTest {
             OpenaiApiStateHolder(),
             env(this),
         )
+
+        lifecycle.start()
+        runCurrent()
+
         val customPrompt = "You are a security auditor."
         state.updateSettings(
             state.state.value.settings.copy(
@@ -87,6 +91,10 @@ class RiskAnalyzerLifecycleTest {
             OpenaiApiStateHolder(),
             env(this),
         )
+
+        lifecycle.start()
+        runCurrent()
+
         state.updateSettings(state.state.value.settings.copy(riskAnalysisModel = "opus"))
         runCurrent()
 
