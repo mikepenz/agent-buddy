@@ -20,6 +20,7 @@ import kotlinx.datetime.Instant
 @Composable
 fun SlimHost(
     onExpand: () -> Unit,
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val viewModel: ApprovalsViewModel = metroViewModel()
@@ -54,6 +55,7 @@ fun SlimHost(
         },
         onExpand = onExpand,
         onApproveWithInput = { id, updated -> viewModel.onApproveWithInput(id, updated) },
+        onPopOut = onPopOut,
         modifier = modifier,
     )
 }

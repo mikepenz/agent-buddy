@@ -117,6 +117,7 @@ fun SlimWindow(
     onExpand: () -> Unit,
     modifier: Modifier = Modifier,
     onApproveWithInput: (id: String, Map<String, JsonElement>) -> Unit = { _, _ -> },
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -132,6 +133,7 @@ fun SlimWindow(
             onResolve = onResolve,
             onExpand = onExpand,
             onApproveWithInput = onApproveWithInput,
+            onPopOut = onPopOut,
             modifier = Modifier.weight(1f),
         )
     }
@@ -150,6 +152,7 @@ fun SlimContent(
     onExpand: () -> Unit,
     modifier: Modifier = Modifier,
     onApproveWithInput: (id: String, Map<String, JsonElement>) -> Unit = { _, _ -> },
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
 ) {
     // All items start expanded; new items auto-expand when added.
     var expandedIds by remember { mutableStateOf(items.map { it.id }.toSet()) }
@@ -184,6 +187,7 @@ fun SlimContent(
                             onResolve = onResolve,
                             onApproveWithInput = onApproveWithInput,
                             onViewDetail = { detailItem = item },
+                            onPopOut = onPopOut,
                         )
                     }
                 }
@@ -216,6 +220,7 @@ private fun SlimItemCard(
     onResolve: (String, SlimAction) -> Unit,
     onApproveWithInput: (String, Map<String, JsonElement>) -> Unit,
     onViewDetail: () -> Unit,
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         // Header row — always visible, click to collapse/expand
@@ -261,7 +266,7 @@ private fun SlimItemCard(
                     .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                SlimHeroBody(item = item, onResolve = onResolve, onApproveWithInput = onApproveWithInput)
+                SlimHeroBody(item = item, onResolve = onResolve, onApproveWithInput = onApproveWithInput, onPopOut = onPopOut)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center,
@@ -588,6 +593,7 @@ private fun SlimHeroBody(
     item: SlimItem,
     onResolve: (String, SlimAction) -> Unit,
     onApproveWithInput: (String, Map<String, JsonElement>) -> Unit,
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
 ) {
     // Dispatch on tool type so that AskUserQuestion / Plan get their proper
     // interactive renderers instead of the generic "command + allow/deny" hero,
@@ -627,6 +633,7 @@ private fun SlimHeroBody(
                     request = req,
                     planData = planData,
                     onResolve = onResolve,
+                    onPopOut = onPopOut,
                 )
 
             else -> SlimDefaultHero(item = item, onResolve = onResolve)
@@ -724,6 +731,7 @@ private fun SlimPlanReview(
     request: com.mikepenz.agentbelay.model.ApprovalRequest,
     planData: com.mikepenz.agentbelay.model.PlanReviewData,
     onResolve: (String, SlimAction) -> Unit,
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -741,7 +749,7 @@ private fun SlimPlanReview(
         planData = planData,
         onApprove = { onResolve(item.id, SlimAction.Allow) },
         onDeny = { onResolve(item.id, SlimAction.Deny) },
-
+        onPopOut = onPopOut,
     )
 }
 
@@ -1045,6 +1053,7 @@ private fun PreviewSlimWindowPlan() {
                 items = listOf(planSlimItem),
                 onResolve = { _, _ -> },
                 onExpand = {},
+                onPopOut = {},
             )
         }
     }

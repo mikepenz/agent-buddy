@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +46,8 @@ import com.mikepenz.agentbelay.model.Source
 import com.mikepenz.agentbelay.model.ToolType
 import com.mikepenz.agentbelay.ui.components.SlimAllowButton
 import com.mikepenz.agentbelay.ui.components.SlimDenyButton
+import com.mikepenz.agentbelay.ui.detail.PopOutSpec
+import com.mikepenz.agentbelay.ui.icons.FeatherExternalLink
 import com.mikepenz.agentbelay.ui.theme.PreviewScaffold
 import kotlinx.datetime.Clock
 
@@ -72,7 +75,9 @@ fun PlanReviewForm(
     request: ApprovalRequest,
     planData: PlanReviewData,
     state: PlanReviewFormState,
-    onPopOut: ((title: String, content: String) -> Unit)? = null,
+    onPopOut: ((PopOutSpec) -> Unit)? = null,
+    onApprove: ((String?) -> Unit)? = null,
+    onDeny: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val trimmedPlan = planData.plan.trim()
@@ -87,10 +92,25 @@ fun PlanReviewForm(
             Text("No timeout", fontSize = 10.sp, color = Color.Gray)
             if (onPopOut != null) {
                 IconButton(
-                    onClick = { onPopOut("Plan Review", trimmedPlan) },
-                    modifier = Modifier.size(20.dp),
+                    onClick = {
+                        onPopOut(
+                            PopOutSpec(
+                                title = "Plan Review",
+                                content = trimmedPlan,
+                                approveAction = onApprove?.let { { it(null) } },
+                                denyAction = onDeny?.let { { it("") } },
+                                refineAction = onDeny?.let { deny -> { feedback: String -> deny(feedback) } },
+                            )
+                        )
+                    },
+                    modifier = Modifier.size(24.dp),
                 ) {
-                    Text("↗", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(
+                        imageVector = FeatherExternalLink,
+                        contentDescription = "Open plan in new window",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
                 }
             }
         }
@@ -223,11 +243,11 @@ fun PlanCard(
     planData: PlanReviewData,
     onApprove: (String?) -> Unit,
     onDeny: (String) -> Unit,
-    onPopOut: ((title: String, content: String) -> Unit)? = null,
+    onPopOut: ((PopOutSpec) -> Unit)? = null,
 ) {
     val state = rememberPlanReviewFormState()
     Column(modifier = Modifier.fillMaxWidth()) {
-        PlanReviewForm(request, planData, state, onPopOut)
+        PlanReviewForm(request, planData, state, onPopOut, onApprove, onDeny)
         Spacer(Modifier.height(8.dp))
         PlanReviewActionBar(state, onApprove, onDeny)
     }
@@ -266,6 +286,7 @@ private fun PreviewPlanCard() {
                 ),
                 onApprove = {},
                 onDeny = {},
+                onPopOut = {},
             )
         }
     }
@@ -299,7 +320,7 @@ private fun PreviewPlanCardSlimButtons() {
                 ),
                 onApprove = {},
                 onDeny = {},
-
+                onPopOut = {},
             )
         }
     }
@@ -330,6 +351,7 @@ private fun PreviewPlanCardLongPlan() {
                 ),
                 onApprove = {},
                 onDeny = {},
+                onPopOut = {},
             )
         }
     }

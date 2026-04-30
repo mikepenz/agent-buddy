@@ -47,7 +47,7 @@ private const val SLIM_THRESHOLD_DP = 500
 
 @Composable
 fun App(
-    onPopOut: ((title: String, content: String) -> Unit)? = null,
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
     onShowLicenses: () -> Unit = {},
     onExpand: () -> Unit = {},
 ) {
@@ -70,6 +70,7 @@ fun App(
             if (slim) {
                 SlimHost(
                     onExpand = onExpand,
+                    onPopOut = onPopOut,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {

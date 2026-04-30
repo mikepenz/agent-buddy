@@ -51,6 +51,8 @@ import com.mikepenz.agentbelay.model.HookInput
 import com.mikepenz.agentbelay.model.PermissionSuggestion
 import com.mikepenz.agentbelay.model.Source
 import com.mikepenz.agentbelay.model.ToolType
+import com.mikepenz.agentbelay.ui.detail.PopOutSpec
+import com.mikepenz.agentbelay.ui.icons.FeatherExternalLink
 import com.mikepenz.agentbelay.ui.icons.FontAwesomeCaretDown
 import com.mikepenz.agentbelay.ui.theme.PreviewScaffold
 import com.mikepenz.markdown.compose.components.markdownComponents
@@ -73,7 +75,7 @@ fun DefaultCard(
     onAlwaysAllow: () -> Unit = {},
     onUserInteraction: () -> Unit = {},
     prominentAlwaysAllow: Boolean = false,
-    onPopOut: ((title: String, content: String) -> Unit)? = null,
+    onPopOut: ((PopOutSpec) -> Unit)? = null,
     popOutContent: String = "",
     content: @Composable () -> Unit,
 ) {
@@ -93,10 +95,15 @@ fun DefaultCard(
             )
             if (onPopOut != null) {
                 IconButton(
-                    onClick = { onPopOut(request.hookInput.toolName, popOutContent) },
-                    modifier = Modifier.size(20.dp),
+                    onClick = { onPopOut(PopOutSpec(request.hookInput.toolName, popOutContent)) },
+                    modifier = Modifier.size(24.dp),
                 ) {
-                    Text("↗", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(
+                        imageVector = FeatherExternalLink,
+                        contentDescription = "Open in new window",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(14.dp),
+                    )
                 }
             }
         }

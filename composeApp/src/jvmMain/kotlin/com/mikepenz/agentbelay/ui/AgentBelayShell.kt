@@ -53,6 +53,7 @@ import kotlinx.coroutines.cancel
 import com.mikepenz.agentbelay.ui.approvals.ApprovalsViewModel
 import com.mikepenz.agentbelay.ui.detail.ContentDetailWindow
 import com.mikepenz.agentbelay.ui.detail.LicensesWindow
+import com.mikepenz.agentbelay.ui.detail.PopOutSpec
 import com.mikepenz.agentbelay.ui.theme.AgentBelayTheme
 import dev.zacsweers.metrox.viewmodel.LocalMetroViewModelFactory
 import io.github.kdroidfilter.nucleus.window.material.MaterialDecoratedWindow
@@ -90,7 +91,7 @@ fun ApplicationScope.AgentBelayShell(graph: AppGraph, devMode: Boolean, exitAppl
     val paletteController = rememberCommandPaletteController()
 
     var showPortError by remember { mutableStateOf(false) }
-    var popOutState by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var popOutState by remember { mutableStateOf<PopOutSpec?>(null) }
     var showLicenses by remember { mutableStateOf(false) }
 
     // Application-scoped ViewModelStore — survives the main window being
@@ -277,7 +278,7 @@ fun ApplicationScope.AgentBelayShell(graph: AppGraph, devMode: Boolean, exitAppl
                         LocalCommandPaletteController provides paletteController,
                     ) {
                         App(
-                            onPopOut = { title, content -> popOutState = title to content },
+                            onPopOut = { spec -> popOutState = spec },
                             onShowLicenses = { showLicenses = true },
                             onExpand = {
                                 val gc = window.graphicsConfiguration
@@ -308,11 +309,22 @@ fun ApplicationScope.AgentBelayShell(graph: AppGraph, devMode: Boolean, exitAppl
         LicensesWindow(onClose = { showLicenses = false })
     }
 
-    popOutState?.let { (title, content) ->
+    popOutState?.let { spec ->
+        val close = { popOutState = null }
+        // Wrap actions so each click also closes the window — once an
+        // approval has been answered the popped-out view has nothing left
+        // to act on.
+        val wrapped = remember(spec) {
+            spec.copy(
+                approveAction = spec.approveAction?.let { action -> { action(); close() } },
+                denyAction = spec.denyAction?.let { action -> { action(); close() } },
+                refineAction = spec.refineAction?.let { action -> { feedback: String -> action(feedback); close() } },
+            )
+        }
         ContentDetailWindow(
-            title = title,
-            content = content,
-            onClose = { popOutState = null },
+            spec = wrapped,
+            appThemeMode = appState.settings.themeMode,
+            onClose = close,
         )
     }
 }

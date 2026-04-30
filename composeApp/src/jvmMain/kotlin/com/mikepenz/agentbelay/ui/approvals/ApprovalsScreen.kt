@@ -108,6 +108,7 @@ fun ApprovalsScreen(
     onApproveWithInput: (id: String, updatedInput: Map<String, JsonElement>) -> Unit = { _, _ -> },
     onDenyWithFeedback: (id: String, feedback: String) -> Unit = { _, _ -> },
     onDismiss: (id: String) -> Unit = {},
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
     initialMediumDetailId: String? = null,
 ) {
     if (items.isEmpty()) {
@@ -156,6 +157,7 @@ fun ApprovalsScreen(
                     onApproveWithInput = onApproveWithInput,
                     onDenyWithFeedback = onDenyWithFeedback,
                     onDismiss = onDismiss,
+                    onPopOut = onPopOut,
                 )
             }
         } else {
@@ -173,6 +175,7 @@ fun ApprovalsScreen(
                         onApproveWithInput = onApproveWithInput,
                         onDenyWithFeedback = onDenyWithFeedback,
                         onDismiss = onDismiss,
+                        onPopOut = onPopOut,
                     )
                 } else {
                     QueueHeader(count = items.size)
@@ -576,6 +579,7 @@ private fun MediumDetailView(
     onApproveWithInput: (id: String, updatedInput: Map<String, JsonElement>) -> Unit = { _, _ -> },
     onDenyWithFeedback: (id: String, feedback: String) -> Unit = { _, _ -> },
     onDismiss: (id: String) -> Unit = {},
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
 ) {
     Column(modifier = modifier) {
         // Back bar
@@ -611,6 +615,7 @@ private fun MediumDetailView(
             onApproveWithInput = onApproveWithInput,
             onDenyWithFeedback = onDenyWithFeedback,
             onDismiss = onDismiss,
+            onPopOut = onPopOut,
         )
     }
 }
@@ -627,6 +632,7 @@ private fun ApprovalDetail(
     onApproveWithInput: (id: String, updatedInput: Map<String, JsonElement>) -> Unit = { _, _ -> },
     onDenyWithFeedback: (id: String, feedback: String) -> Unit = { _, _ -> },
     onDismiss: (id: String) -> Unit = {},
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
 ) {
     val askRequest = item.request?.takeIf {
         item.toolType == ToolType.ASK_USER_QUESTION && item.questionData != null
@@ -707,6 +713,9 @@ private fun ApprovalDetail(
                         request = planRequest,
                         planData = item.planData,
                         state = planState!!,
+                        onPopOut = onPopOut,
+                        onApprove = { onApprove(item.id) },
+                        onDeny = { feedback -> onDenyWithFeedback(item.id, feedback) },
                     )
                 }
 

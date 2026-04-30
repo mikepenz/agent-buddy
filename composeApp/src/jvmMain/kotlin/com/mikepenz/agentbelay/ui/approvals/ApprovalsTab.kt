@@ -33,7 +33,7 @@ fun ApprovalsTab(
     autoDenyRequests: Set<String>,
     onCancelAutoDeny: (requestId: String) -> Unit,
     onUserInteraction: (requestId: String) -> Unit = {},
-    onPopOut: ((title: String, content: String) -> Unit)? = null,
+    onPopOut: ((com.mikepenz.agentbelay.ui.detail.PopOutSpec) -> Unit)? = null,
     onSettingsChange: (AppSettings) -> Unit = {},
 ) {
     var now by remember { mutableStateOf(Clock.System.now()) }
@@ -104,5 +104,6 @@ fun ApprovalsTab(
         onApproveWithInput = { id, updatedInput -> onApproveWithInput(id, updatedInput) },
         onDenyWithFeedback = { id, feedback -> onDeny(id, feedback) },
         onDismiss = { id -> onDismiss(id) },
+        onPopOut = onPopOut,
     )
 }
