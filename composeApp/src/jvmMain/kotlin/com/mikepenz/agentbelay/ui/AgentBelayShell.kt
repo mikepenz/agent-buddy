@@ -209,13 +209,14 @@ fun ApplicationScope.AgentBelayShell(graph: AppGraph, devMode: Boolean, exitAppl
                         false
                     } else when (event.key) {
                         Key.K -> { paletteController.toggle(); true }
-                        Key.One, Key.Two, Key.Three, Key.Four, Key.Five -> {
+                        Key.One, Key.Two, Key.Three, Key.Four, Key.Five, Key.Six -> {
                             val index = when (event.key) {
                                 Key.One -> 0
                                 Key.Two -> 1
                                 Key.Three -> 2
                                 Key.Four -> 3
-                                else -> 4
+                                Key.Five -> 4
+                                else -> 5
                             }
                             if (index < visibleTabCount) {
                                 appViewModel.selectTab(index)

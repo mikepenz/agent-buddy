@@ -27,3 +27,21 @@ data class UsageDailyCount(
     val epochDay: Long,
     val requests: Int,
 )
+
+/**
+ * Lightweight roll-up of one session, used by the Insights tab as the
+ * left-rail entry. The dominant model wins ties (see
+ * `DatabaseStorage.listRecentSessions`).
+ */
+data class SessionSummary(
+    val harness: Source,
+    val sessionId: String,
+    val model: String?,
+    val firstTsMillis: Long,
+    val lastTsMillis: Long,
+    val turnCount: Int,
+    val totalInputTokens: Long,
+    val totalOutputTokens: Long,
+    val totalCacheReadTokens: Long,
+    val totalCostUsd: Double,
+)

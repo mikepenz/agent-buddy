@@ -37,7 +37,38 @@ class ClaudeCliRiskAnalyzer(
         }
     }
 
-    private suspend fun runClaude(userMessage: String): String = coroutineScope {
+    /**
+     * Free-form text completion via the same Claude CLI binary, but without
+     * the risk-classification JSON schema. Used by the Optimization Insights
+     * feature.
+     */
+    override suspend fun analyzeText(systemPrompt: String, userPrompt: String): Result<String> =
+        withContext(Dispatchers.IO) {
+            try {
+                withTimeout(TIMEOUT_MS) {
+                    val output = runClaudeRaw(systemPrompt, userPrompt)
+                    Result.success(output)
+                }
+            } catch (e: Exception) {
+                log.e(e) { "analyzeText failed" }
+                Result.failure(e)
+            }
+        }
+
+    private suspend fun runClaudeRaw(systemPrompt: String, userMessage: String): String {
+        val command = listOf(
+            "claude",
+            "-p",
+            "--model", model,
+            "--effort", "low",
+            "--system-prompt", systemPrompt,
+            "--no-session-persistence",
+            userMessage,
+        )
+        return invokeClaude(command)
+    }
+
+    private suspend fun runClaude(userMessage: String): String {
         val command = listOf(
             "claude",
             "-p",
@@ -49,6 +80,10 @@ class ClaudeCliRiskAnalyzer(
             "--no-session-persistence",
             userMessage,
         )
+        return invokeClaude(command)
+    }
+
+    private suspend fun invokeClaude(command: List<String>): String = coroutineScope {
 
         log.d { "Spawning claude -p --model $model --effort low" }
 

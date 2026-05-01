@@ -4,7 +4,7 @@ package com.mikepenz.agentbelay.ui
  * The set of top-level tabs hosted by [App]. The Protection Log tab is only
  * visible in dev mode.
  */
-enum class AppTab { Approvals, History, Statistics, Usage, ProtectionLog, Settings }
+enum class AppTab { Approvals, History, Statistics, Usage, Insights, ProtectionLog, Settings }
 
 /**
  * Visible tab order computed from [devMode]. Centralised here (rather than
@@ -16,6 +16,7 @@ fun visibleTabs(devMode: Boolean): List<AppTab> = buildList {
     add(AppTab.History)
     add(AppTab.Statistics)
     add(AppTab.Usage)
+    add(AppTab.Insights)
     if (devMode) add(AppTab.ProtectionLog)
     add(AppTab.Settings)
 }

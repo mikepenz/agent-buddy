@@ -257,6 +257,26 @@ fun GeneralSettingsContent(
         )
     }
 
+    SettingSection(
+        title = "Optimization insights",
+        desc = "Experimental — analyzes session token usage to surface pre-crafted optimization suggestions.",
+    ) {
+        SettingItem(
+            label = "AI-personalized suggestions",
+            desc = "When on, the Insights tab can ask the active Risk Analysis backend to elevate a " +
+                "heuristic finding into a tailored suggestion. Sends only the insight title, evidence, " +
+                "harness, model, and aggregate token totals — no file contents, prompts, or tool inputs. " +
+                "Pre-crafted insights still work without this enabled.",
+            first = true,
+            right = {
+                DesignToggle(
+                    checked = settings.insightsAiEnabled,
+                    onCheckedChange = { onSettingsChange(settings.copy(insightsAiEnabled = it)) },
+                )
+            },
+        )
+    }
+
     SettingSection(title = "Diagnostics") {
         SettingItem(
             label = "Verbose logging",
