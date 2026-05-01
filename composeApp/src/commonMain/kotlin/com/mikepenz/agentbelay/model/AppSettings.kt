@@ -104,4 +104,22 @@ data class AppSettings(
      * Default on — the feature is opt-out, not opt-in.
      */
     val usageTrackingEnabled: Boolean = true,
+    /**
+     * When true, the Insights tab can elevate a heuristic finding into a
+     * personalized AI suggestion via the active Risk Analysis backend. Off
+     * by default — pre-crafted insights still show, but no LLM calls are
+     * made until the user opts in.
+     */
+    val insightsAiEnabled: Boolean = false,
+    /**
+     * Optional override for which Risk Analysis backend the Insights AI
+     * adapter routes through. `null` = inherit whatever Risk Analysis is
+     * configured globally.
+     */
+    val insightsAiBackend: RiskAnalysisBackend? = null,
+    /**
+     * Optional system-prompt override for the Insights AI adapter. Blank =
+     * use the bundled default prompt.
+     */
+    val insightsAiCustomPrompt: String = "",
 )

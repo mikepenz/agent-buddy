@@ -56,12 +56,13 @@ import com.mikepenz.agentbelay.ui.components.HorizontalHairline
 import kotlinx.serialization.json.JsonElement
 import com.mikepenz.agentbelay.ui.components.LocalPreviewHoverOverride
 import com.mikepenz.agentbelay.ui.components.PillSegmented
-import com.mikepenz.agentbelay.ui.components.PillSegmentedSize
 import com.mikepenz.agentbelay.ui.components.RedactionPill
 import com.mikepenz.agentbelay.ui.components.RiskPill
 import com.mikepenz.agentbelay.ui.components.SourceTag
 import com.mikepenz.agentbelay.ui.components.StatusPill
 import com.mikepenz.agentbelay.ui.components.TagSize
+import com.mikepenz.agentbelay.ui.components.sourceAccentColor
+import com.mikepenz.agentbelay.ui.components.sourceDisplayName
 import com.mikepenz.agentbelay.ui.components.ToolTag
 import com.mikepenz.agentbelay.ui.icons.LucideChevronDown
 import com.mikepenz.agentbelay.ui.icons.LucideChevronRight
@@ -100,30 +101,25 @@ data class HistoryEntry(
 )
 
 /**
- * Source filter for the right-side toolbar. JSX uses raw strings ('all', 'Claude Code',
- * 'Copilot'); we expose this as a sealed enum that maps cleanly to [Source].
+ * Sort order for the History toolbar. Mirrors the Insights tab so users
+ * carry one mental model between screens.
  */
-enum class HistorySourceFilter { All, Claude, Copilot }
-
-internal fun HistoryEntry.matchesSource(filter: HistorySourceFilter): Boolean = when (filter) {
-    HistorySourceFilter.All -> true
-    HistorySourceFilter.Claude -> source == Source.CLAUDE_CODE
-    HistorySourceFilter.Copilot -> source == Source.COPILOT
+enum class HistorySort(val label: String) {
+    Recent("Recent"),
+    Tool("Tool"),
+    Source("Source"),
 }
+
+/** Multi-select harness filter check. `null` = no filter. */
+internal fun HistoryEntry.matchesHarnessFilter(filter: Set<Source>?): Boolean =
+    filter == null || filter.isEmpty() || source in filter
 
 internal fun HistoryEntry.matchesQuery(query: String): Boolean {
     if (query.isBlank()) return true
     val q = query.lowercase()
-    val sourceLabel = when (source) {
-        Source.CLAUDE_CODE -> "Claude Code"
-        Source.COPILOT -> "Copilot"
-        Source.OPENCODE -> "OpenCode"
-        Source.PI -> "Pi"
-        Source.CODEX -> "Codex"
-    }
     return tool.lowercase().contains(q) ||
         summary.lowercase().contains(q) ||
-        sourceLabel.lowercase().contains(q)
+        sourceDisplayName(source).lowercase().contains(q)
 }
 
 /**
@@ -138,8 +134,18 @@ data class HistoryUiState(
     val total: Int,
     val counts: HistoryCounts,
     val scope: HistoryScope,
-    val sourceFilter: HistorySourceFilter,
     val query: String,
+    val sort: HistorySort = HistorySort.Recent,
+    /**
+     * Multi-select harness filter. `null` = no filter (show every harness
+     * present in [entries]).
+     */
+    val harnessFilter: Set<Source>? = null,
+    /**
+     * Harnesses actually present in the unfiltered history projection.
+     * Drives the dropdown's option list.
+     */
+    val availableHarnesses: List<Source> = emptyList(),
 ) {
     companion object {
         val Empty = HistoryUiState(
@@ -147,7 +153,6 @@ data class HistoryUiState(
             total = 0,
             counts = HistoryCounts(0, 0, 0),
             scope = HistoryScope.All,
-            sourceFilter = HistorySourceFilter.All,
             query = "",
         )
     }
@@ -161,8 +166,9 @@ data class HistoryUiState(
 fun HistoryScreen(
     ui: HistoryUiState,
     onScopeChange: (HistoryScope) -> Unit,
-    onSourceFilterChange: (HistorySourceFilter) -> Unit,
     onQueryChange: (String) -> Unit,
+    onSortChange: (HistorySort) -> Unit = {},
+    onHarnessFilterChange: (Set<Source>?) -> Unit = {},
     modifier: Modifier = Modifier,
     initialExpandedId: String? = ui.entries.firstOrNull()?.id,
     onReplay: ((id: String) -> Unit)? = null,
@@ -187,8 +193,11 @@ fun HistoryScreen(
                     scope = ui.scope,
                     counts = ui.counts,
                     onScopeChange = onScopeChange,
-                    sourceFilter = ui.sourceFilter,
-                    onSourceFilterChange = onSourceFilterChange,
+                    sort = ui.sort,
+                    onSortChange = onSortChange,
+                    harnessFilter = ui.harnessFilter,
+                    availableHarnesses = ui.availableHarnesses,
+                    onHarnessFilterChange = onHarnessFilterChange,
                     query = ui.query,
                     onQueryChange = onQueryChange,
                     compact = true,
@@ -233,8 +242,11 @@ fun HistoryScreen(
                     scope = ui.scope,
                     counts = ui.counts,
                     onScopeChange = onScopeChange,
-                    sourceFilter = ui.sourceFilter,
-                    onSourceFilterChange = onSourceFilterChange,
+                    sort = ui.sort,
+                    onSortChange = onSortChange,
+                    harnessFilter = ui.harnessFilter,
+                    availableHarnesses = ui.availableHarnesses,
+                    onHarnessFilterChange = onHarnessFilterChange,
                     query = ui.query,
                     onQueryChange = onQueryChange,
                 )
@@ -303,14 +315,16 @@ fun HistoryScreen(
     items: List<HistoryEntry>,
     modifier: Modifier = Modifier,
     initialScope: HistoryScope = HistoryScope.All,
-    initialSourceFilter: HistorySourceFilter = HistorySourceFilter.All,
     initialQuery: String = "",
+    initialSort: HistorySort = HistorySort.Recent,
+    initialHarnessFilter: Set<Source>? = null,
     initialExpandedId: String? = items.firstOrNull()?.id,
     onReplay: ((id: String) -> Unit)? = null,
 ) {
     var scope by remember { mutableStateOf(initialScope) }
-    var sourceFilter by remember { mutableStateOf(initialSourceFilter) }
     var query by remember { mutableStateOf(initialQuery) }
+    var sort by remember { mutableStateOf(initialSort) }
+    var harnessFilter by remember { mutableStateOf(initialHarnessFilter) }
 
     val counts = remember(items) {
         HistoryCounts(
@@ -319,14 +333,21 @@ fun HistoryScreen(
             protections = items.count { it.status in protectionStatuses },
         )
     }
-    val filtered = remember(items, scope, sourceFilter, query) {
-        items.filter { entry ->
+    val filtered = remember(items, scope, query, sort, harnessFilter) {
+        val matched = items.filter { entry ->
             val scopeMatch = when (scope) {
                 HistoryScope.All -> true
                 HistoryScope.Approvals -> entry.status in approvalStatuses
                 HistoryScope.Protections -> entry.status in protectionStatuses
             }
-            scopeMatch && entry.matchesSource(sourceFilter) && entry.matchesQuery(query)
+            scopeMatch &&
+                entry.matchesHarnessFilter(harnessFilter) &&
+                entry.matchesQuery(query)
+        }
+        when (sort) {
+            HistorySort.Recent -> matched
+            HistorySort.Tool -> matched.sortedBy { it.tool.lowercase() }
+            HistorySort.Source -> matched.sortedBy { it.source.ordinal }
         }
     }
     val ui = HistoryUiState(
@@ -334,14 +355,17 @@ fun HistoryScreen(
         total = items.size,
         counts = counts,
         scope = scope,
-        sourceFilter = sourceFilter,
         query = query,
+        sort = sort,
+        harnessFilter = harnessFilter,
+        availableHarnesses = items.map { it.source }.distinct().sortedBy { it.ordinal },
     )
     HistoryScreen(
         ui = ui,
         onScopeChange = { scope = it },
-        onSourceFilterChange = { sourceFilter = it },
         onQueryChange = { query = it },
+        onSortChange = { sort = it },
+        onHarnessFilterChange = { harnessFilter = it?.takeIf { f -> f.isNotEmpty() } },
         modifier = modifier,
         initialExpandedId = initialExpandedId,
         onReplay = onReplay,
@@ -374,18 +398,19 @@ private fun HistoryHeader(
     scope: HistoryScope,
     counts: HistoryCounts,
     onScopeChange: (HistoryScope) -> Unit,
-    sourceFilter: HistorySourceFilter,
-    onSourceFilterChange: (HistorySourceFilter) -> Unit,
+    sort: HistorySort,
+    onSortChange: (HistorySort) -> Unit,
+    harnessFilter: Set<Source>?,
+    availableHarnesses: List<Source>,
+    onHarnessFilterChange: (Set<Source>?) -> Unit,
     query: String,
     onQueryChange: (String) -> Unit,
     compact: Boolean = false,
 ) {
     val hPad = if (compact) 16.dp else 28.dp
     Column(modifier = Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = 18.dp)) {
-        // Title row — title+subtitle on the left, toolbar (source pill, search, filters) on the right.
-        // FlowRow wraps the toolbar below the title at narrow widths so the
-        // two halves never overlap. SpaceBetween keeps them flush at desktop
-        // widths.
+        // Title row — title+subtitle on the left, search on the right.
+        // FlowRow wraps the search below the title at narrow widths.
         androidx.compose.foundation.layout.FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -406,26 +431,11 @@ private fun HistoryHeader(
                     fontSize = 12.5.sp,
                 )
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PillSegmented(
-                    options = listOf(
-                        HistorySourceFilter.All to "All sources",
-                        HistorySourceFilter.Claude to "Claude",
-                        HistorySourceFilter.Copilot to "Copilot",
-                    ),
-                    selected = sourceFilter,
-                    onSelect = onSourceFilterChange,
-                    size = PillSegmentedSize.SM,
-                )
-                FilterSearchField(
-                    value = query,
-                    onChange = onQueryChange,
-                    modifier = Modifier.width(260.dp),
-                )
-            }
+            FilterSearchField(
+                value = query,
+                onChange = onQueryChange,
+                modifier = Modifier.widthIn(min = 220.dp).width(260.dp),
+            )
         }
         Spacer(Modifier.height(14.dp))
         Segmented(
@@ -437,8 +447,21 @@ private fun HistoryHeader(
             selected = scope,
             onSelect = onScopeChange,
         )
-        // Baseline divider under tabs (matches JSX borderBottom on Segmented).
         HorizontalHairline()
+        // Sort + harness filter row — same layout used in the Insights tab
+        // via [SortAndFilterRow], so the two screens share styling.
+        Spacer(Modifier.height(12.dp))
+        com.mikepenz.agentbelay.ui.components.SortAndFilterRow(
+            sortOptions = HistorySort.entries.map { it to it.label },
+            sortSelected = sort,
+            onSortChange = onSortChange,
+            harnessOptions = availableHarnesses.map { it to sourceDisplayName(it) },
+            harnessSelected = harnessFilter,
+            onHarnessChange = onHarnessFilterChange,
+            harnessLeadingDot = ::sourceAccentColor,
+        )
+        // Breathing room between the filter row and the table headers below.
+        Spacer(Modifier.height(14.dp))
     }
 }
 
@@ -899,11 +922,11 @@ private fun PreviewHistoryApprovalsTab() {
 @Preview(widthDp = 1088, heightDp = 860)
 @Composable
 private fun PreviewHistoryFilteredByClaude() {
-    // Right-side source pill pre-selected to Claude — drops Copilot rows.
+    // Harness multi-select pre-set to Claude — drops Copilot rows.
     PreviewScaffold {
         HistoryScreen(
             items = sampleHistory(),
-            initialSourceFilter = HistorySourceFilter.Claude,
+            initialHarnessFilter = setOf(Source.CLAUDE_CODE),
         )
     }
 }
@@ -911,11 +934,11 @@ private fun PreviewHistoryFilteredByClaude() {
 @Preview(widthDp = 1088, heightDp = 860)
 @Composable
 private fun PreviewHistoryFilteredByCopilot() {
-    // Right-side source pill pre-selected to Copilot — drops Claude rows.
+    // Harness multi-select pre-set to Copilot — drops Claude rows.
     PreviewScaffold {
         HistoryScreen(
             items = sampleHistory(),
-            initialSourceFilter = HistorySourceFilter.Copilot,
+            initialHarnessFilter = setOf(Source.COPILOT),
         )
     }
 }

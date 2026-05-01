@@ -742,6 +742,158 @@ open class DatabaseStorage(
         out
     }
 
+    /**
+     * Returns every [com.mikepenz.agentbelay.model.UsageRecord] for one
+     * session, in chronological order. Used by the Insights tab to compute
+     * per-session token-burn signals (cache-read ratio, reasoning ratio, …)
+     * over the full turn timeline.
+     */
+    fun queryUsageBySession(sessionId: String): List<com.mikepenz.agentbelay.model.UsageRecord> =
+        synchronized(connectionLock) {
+            val out = mutableListOf<com.mikepenz.agentbelay.model.UsageRecord>()
+            connection.prepareStatement(
+                """
+                SELECT harness, session_id, ts_millis, model,
+                       input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens,
+                       cost_usd, duration_ms, source_file, source_offset, dedup_key
+                FROM usage_records
+                WHERE session_id = ?
+                ORDER BY ts_millis ASC
+                """.trimIndent()
+            ).use { ps ->
+                ps.setString(1, sessionId)
+                ps.executeQuery().use { rs ->
+                    while (rs.next()) {
+                        val harnessStr = rs.getString("harness") ?: continue
+                        val source = runCatching {
+                            com.mikepenz.agentbelay.model.Source.valueOf(harnessStr)
+                        }.getOrNull() ?: continue
+                        out.add(
+                            com.mikepenz.agentbelay.model.UsageRecord(
+                                harness = source,
+                                sessionId = rs.getString("session_id"),
+                                timestamp = kotlinx.datetime.Instant.fromEpochMilliseconds(rs.getLong("ts_millis")),
+                                model = rs.getString("model"),
+                                inputTokens = rs.getLong("input_tokens"),
+                                outputTokens = rs.getLong("output_tokens"),
+                                cacheReadTokens = rs.getLong("cache_read_tokens"),
+                                cacheWriteTokens = rs.getLong("cache_write_tokens"),
+                                reasoningTokens = rs.getLong("reasoning_tokens"),
+                                costUsd = rs.getObject("cost_usd") as? Double,
+                                durationMs = rs.getObject("duration_ms") as? Long,
+                                sourceFile = rs.getString("source_file"),
+                                sourceOffset = rs.getLong("source_offset"),
+                                dedupKey = rs.getString("dedup_key"),
+                            ),
+                        )
+                    }
+                }
+            }
+            out
+        }
+
+    /**
+     * History rows (approval decisions + protections) for one session, oldest
+     * first. Lets the Insights detectors correlate tool calls with the
+     * `usage_records` timeline (e.g. count `Task` invocations for the
+     * subagent-overspawn detector, or detect repeated `Read`s on the same
+     * path for the read-once detector).
+     */
+    fun queryHistoryBySession(sessionId: String): List<ApprovalResult> = synchronized(connectionLock) {
+        val results = mutableListOf<ApprovalResult>()
+        connection.prepareStatement(
+            "SELECT * FROM history WHERE session_id = ? ORDER BY decided_at ASC"
+        ).use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) {
+                    tryRowToApprovalResult(rs)?.let(results::add)
+                }
+            }
+        }
+        results
+    }
+
+    /**
+     * Lightweight roll-up of every session that has at least [minTurns] usage
+     * records — feeds the session list on the Insights tab. Deliberately
+     * avoids loading individual rows; callers fetch detail per-session via
+     * [queryUsageBySession].
+     */
+    fun listRecentSessions(
+        sinceMillis: Long? = null,
+        minTurns: Int = 5,
+    ): List<SessionSummary> = synchronized(connectionLock) {
+        val whereTs = if (sinceMillis != null) "WHERE ts_millis >= ?" else ""
+        // Pick the most-frequent model per session (some sessions span /model
+        // switches; the dominant one is the most useful single label).
+        val sql = """
+            WITH session_models AS (
+                SELECT session_id, model, COUNT(*) AS c
+                FROM usage_records
+                $whereTs
+                GROUP BY session_id, model
+            ),
+            top_model AS (
+                SELECT session_id, model
+                FROM session_models sm
+                WHERE sm.c = (
+                    SELECT MAX(c) FROM session_models sm2 WHERE sm2.session_id = sm.session_id
+                )
+            )
+            SELECT u.harness AS harness,
+                   u.session_id AS session_id,
+                   tm.model AS model,
+                   MIN(u.ts_millis) AS first_ts,
+                   MAX(u.ts_millis) AS last_ts,
+                   COUNT(*) AS turn_count,
+                   COALESCE(SUM(u.input_tokens), 0) AS input_tokens,
+                   COALESCE(SUM(u.output_tokens), 0) AS output_tokens,
+                   COALESCE(SUM(u.cache_read_tokens), 0) AS cache_read_tokens,
+                   COALESCE(SUM(u.cost_usd), 0) AS cost_usd
+            FROM usage_records u
+            LEFT JOIN top_model tm ON tm.session_id = u.session_id
+            $whereTs
+            GROUP BY u.session_id
+            HAVING turn_count >= ?
+            ORDER BY last_ts DESC
+        """.trimIndent()
+
+        val out = mutableListOf<SessionSummary>()
+        connection.prepareStatement(sql).use { ps ->
+            var idx = 1
+            // Bind sinceMillis twice: once for the CTE filter, once for the outer.
+            if (sinceMillis != null) {
+                ps.setLong(idx++, sinceMillis)
+                ps.setLong(idx++, sinceMillis)
+            }
+            ps.setInt(idx, minTurns)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) {
+                    val harnessStr = rs.getString("harness") ?: continue
+                    val source = runCatching {
+                        com.mikepenz.agentbelay.model.Source.valueOf(harnessStr)
+                    }.getOrNull() ?: continue
+                    out.add(
+                        SessionSummary(
+                            harness = source,
+                            sessionId = rs.getString("session_id"),
+                            model = rs.getString("model"),
+                            firstTsMillis = rs.getLong("first_ts"),
+                            lastTsMillis = rs.getLong("last_ts"),
+                            turnCount = rs.getInt("turn_count"),
+                            totalInputTokens = rs.getLong("input_tokens"),
+                            totalOutputTokens = rs.getLong("output_tokens"),
+                            totalCacheReadTokens = rs.getLong("cache_read_tokens"),
+                            totalCostUsd = rs.getDouble("cost_usd"),
+                        )
+                    )
+                }
+            }
+        }
+        out
+    }
+
     fun clearUsage(): Unit = synchronized(connectionLock) {
         connection.createStatement().use { stmt ->
             stmt.executeUpdate("DELETE FROM usage_records")

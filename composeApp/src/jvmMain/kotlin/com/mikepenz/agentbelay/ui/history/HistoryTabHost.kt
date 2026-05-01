@@ -33,8 +33,9 @@ fun HistoryTabHost(onJumpToApprovals: () -> Unit) {
     HistoryScreen(
         ui = ui,
         onScopeChange = viewModel::setScope,
-        onSourceFilterChange = viewModel::setSourceFilter,
         onQueryChange = viewModel::setQuery,
+        onSortChange = viewModel::setSort,
+        onHarnessFilterChange = viewModel::setHarnessFilter,
         onReplay = onReplay,
     )
 }

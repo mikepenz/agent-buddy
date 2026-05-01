@@ -158,6 +158,18 @@ interface AppProviders {
 
     @Provides
     @SingleIn(AppScope::class)
+    fun provideInsightEngine(): com.mikepenz.agentbelay.insights.InsightEngine =
+        com.mikepenz.agentbelay.insights.InsightEngine()
+
+    @Provides
+    @SingleIn(AppScope::class)
+    fun provideInsightAiAnalyzer(
+        holder: com.mikepenz.agentbelay.risk.ActiveRiskAnalyzerHolder,
+    ): com.mikepenz.agentbelay.insights.ai.InsightAiAnalyzer =
+        com.mikepenz.agentbelay.insights.ai.InsightAiAnalyzer(holder)
+
+    @Provides
+    @SingleIn(AppScope::class)
     fun provideUsageIngestService(
         env: AppEnvironment,
         databaseStorage: DatabaseStorage,
