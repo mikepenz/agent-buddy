@@ -216,8 +216,11 @@ fun HistoryScreen(
                     scope = ui.scope,
                     counts = ui.counts,
                     onScopeChange = onScopeChange,
-                    sourceFilter = ui.sourceFilter,
-                    onSourceFilterChange = onSourceFilterChange,
+                    sort = ui.sort,
+                    onSortChange = onSortChange,
+                    harnessFilter = ui.harnessFilter,
+                    availableHarnesses = ui.availableHarnesses,
+                    onHarnessFilterChange = onHarnessFilterChange,
                     query = ui.query,
                     onQueryChange = onQueryChange,
                     compact = true,
@@ -262,36 +265,14 @@ fun HistoryScreen(
                     scope = ui.scope,
                     counts = ui.counts,
                     onScopeChange = onScopeChange,
-                    sourceFilter = ui.sourceFilter,
-                    onSourceFilterChange = onSourceFilterChange,
+                    sort = ui.sort,
+                    onSortChange = onSortChange,
+                    harnessFilter = ui.harnessFilter,
+                    availableHarnesses = ui.availableHarnesses,
+                    onHarnessFilterChange = onHarnessFilterChange,
                     query = ui.query,
                     onQueryChange = onQueryChange,
                 )
-
-                // Wide-layout-only sort + multi-select harness filter. The
-                // existing sourceFilter chips inside HistoryHeader still
-                // drive the compact layout; in wide mode users prefer
-                // explicit multi-select over a 3-state pill.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 28.dp, end = 28.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    com.mikepenz.agentbelay.ui.components.PillSegmented(
-                        options = HistorySort.entries.map { it to it.label },
-                        selected = ui.sort,
-                        onSelect = onSortChange,
-                    )
-                    com.mikepenz.agentbelay.ui.components.MultiSelectDropdown(
-                        options = ui.availableHarnesses.map { it to historySourceLabel(it) },
-                        selected = ui.harnessFilter,
-                        onChange = onHarnessFilterChange,
-                        allLabel = "All harnesses",
-                        leadingDot = ::historySourceColor,
-                    )
-                }
 
                 if (ui.entries.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -445,18 +426,19 @@ private fun HistoryHeader(
     scope: HistoryScope,
     counts: HistoryCounts,
     onScopeChange: (HistoryScope) -> Unit,
-    sourceFilter: HistorySourceFilter,
-    onSourceFilterChange: (HistorySourceFilter) -> Unit,
+    sort: HistorySort,
+    onSortChange: (HistorySort) -> Unit,
+    harnessFilter: Set<Source>?,
+    availableHarnesses: List<Source>,
+    onHarnessFilterChange: (Set<Source>?) -> Unit,
     query: String,
     onQueryChange: (String) -> Unit,
     compact: Boolean = false,
 ) {
     val hPad = if (compact) 16.dp else 28.dp
     Column(modifier = Modifier.fillMaxWidth().padding(start = hPad, end = hPad, top = 18.dp)) {
-        // Title row — title+subtitle on the left, toolbar (source pill, search, filters) on the right.
-        // FlowRow wraps the toolbar below the title at narrow widths so the
-        // two halves never overlap. SpaceBetween keeps them flush at desktop
-        // widths.
+        // Title row — title+subtitle on the left, search on the right.
+        // FlowRow wraps the search below the title at narrow widths.
         androidx.compose.foundation.layout.FlowRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -477,26 +459,11 @@ private fun HistoryHeader(
                     fontSize = 12.5.sp,
                 )
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                PillSegmented(
-                    options = listOf(
-                        HistorySourceFilter.All to "All sources",
-                        HistorySourceFilter.Claude to "Claude",
-                        HistorySourceFilter.Copilot to "Copilot",
-                    ),
-                    selected = sourceFilter,
-                    onSelect = onSourceFilterChange,
-                    size = PillSegmentedSize.SM,
-                )
-                FilterSearchField(
-                    value = query,
-                    onChange = onQueryChange,
-                    modifier = Modifier.width(260.dp),
-                )
-            }
+            FilterSearchField(
+                value = query,
+                onChange = onQueryChange,
+                modifier = Modifier.widthIn(min = 220.dp).width(260.dp),
+            )
         }
         Spacer(Modifier.height(14.dp))
         Segmented(
@@ -508,8 +475,30 @@ private fun HistoryHeader(
             selected = scope,
             onSelect = onScopeChange,
         )
-        // Baseline divider under tabs (matches JSX borderBottom on Segmented).
         HorizontalHairline()
+        // Sort + harness filter row — applies to both compact and wide
+        // layouts so the new multi-select replaces the old All/Claude/Copilot
+        // chip strip everywhere.
+        Spacer(Modifier.height(12.dp))
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            PillSegmented(
+                options = HistorySort.entries.map { it to it.label },
+                selected = sort,
+                onSelect = onSortChange,
+                size = PillSegmentedSize.SM,
+            )
+            com.mikepenz.agentbelay.ui.components.MultiSelectDropdown(
+                options = availableHarnesses.map { it to historySourceLabel(it) },
+                selected = harnessFilter,
+                onChange = onHarnessFilterChange,
+                allLabel = "All harnesses",
+                leadingDot = ::historySourceColor,
+            )
+        }
     }
 }
 
